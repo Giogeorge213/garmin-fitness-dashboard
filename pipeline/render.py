@@ -574,9 +574,12 @@ async function drawMap() {
     renderer: L.svg({ padding: 3 }),
     dragging: false, keyboard: false, boxZoom: false,
     scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true,
+    minZoom: 2, worldCopyJump: false,
+    maxBounds: [[-72, -180], [82, 180]], maxBoundsViscosity: 1.0,
   });
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-    { maxZoom: 19, subdomains: "abcd", attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
+    { maxZoom: 19, minZoom: 2, subdomains: "abcd", noWrap: true,
+      attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
 
   // Routes as lines (visible when you zoom into a region) + a fixed-size dot at
   // each start, so every location shows even in the zoomed-out overview.
