@@ -564,11 +564,16 @@ async function drawMap() {
     for (const c of r.coords) bounds.push(c);
   });
 
-  // The card's height isn't final when L.map() runs, so Leaflet measures a
-  // 0-size container and paints nothing. Recompute + refit after layout settles.
-  const fit = () => { map.invalidateSize(); if (bounds.length) map.fitBounds(bounds, { padding: [20, 20] }); };
-  setTimeout(fit, 300);
-  window.addEventListener("load", () => setTimeout(fit, 150));
+  // Canvas paints nothing until the container has a real size. refit() sets
+  // the initial view (invalidateSize + fitBounds); resize() just re-measures
+  // and repaints the current view without yanking the user's pan/zoom.
+  const refit = () => { map.invalidateSize(); if (bounds.length) map.fitBounds(bounds, { padding: [20, 20] }); };
+  const resize = () => map.invalidateSize();
+  const el = document.getElementById("map");
+  if (window.ResizeObserver) { new ResizeObserver(resize).observe(el); }
+  requestAnimationFrame(() => requestAnimationFrame(refit));  // after first layout
+  window.addEventListener("load", () => setTimeout(refit, 150));
+  setTimeout(refit, 600);                                     // slow tile/layout settle
 
   $("mapCount").textContent = "(" + data.routes.length + " GPS activities \u00b7 home clipped)";
 }
