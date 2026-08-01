@@ -196,7 +196,6 @@ def build_data(activities, health, race_pred):
     records = {
         "longest_run": _rec_dist("Running"),
         "longest_ride": _rec_dist("Cycling"),
-        "longest_swim": _rec_dist("Swimming"),
     }
     # Fastest time PRs for standard race distances (best run within each band,
     # by moving time). Approximate: uses full-activity moving time for runs near
@@ -481,7 +480,6 @@ function records() {
   });
   if (r.longest_run)   items.push(["Longest run",   fmt(r.longest_run.mi) + " mi",   r.longest_run.date]);
   if (r.longest_ride)  items.push(["Longest ride",  fmt(r.longest_ride.mi) + " mi",  r.longest_ride.date]);
-  if (r.longest_swim)  items.push(["Longest swim",  fmt(r.longest_swim.mi) + " mi",  r.longest_swim.date]);
   if (r.most_steps)    items.push(["Most steps (1 day)", fmt(r.most_steps.steps), r.most_steps.date]);
   $("records").innerHTML = items.map(([l, n, s, d]) =>
     `<div><div class="n">${n}</div><div class="l">${l}</div>` +
