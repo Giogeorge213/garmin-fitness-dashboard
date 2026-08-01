@@ -8,12 +8,9 @@ Built end to end: a Python data pipeline, a static front end, and an AWS serverl
 
 ## Screenshots
 
+![Garmin Fitness Dashboard](docs/dashboard.png)
+
 See it live at **https://dmcikdazkoyo2.cloudfront.net**.
-
-To add images to this README: drop `dashboard.png` and `map.png` into a `docs/` folder, then uncomment the two lines below.
-
-<!-- ![Dashboard](docs/dashboard.png) -->
-<!-- ![Where I've trained](docs/map.png) -->
 
 ## What it shows
 
@@ -76,6 +73,9 @@ No personal health or GPS data is committed. `.gitignore` excludes `pipeline/out
 ## Run it yourself
 
 ```bash
+# install the one dependency (Garmin Connect client)
+pip install -r requirements.txt
+
 # build the site locally
 python pipeline/render.py --chat-api-url https://<your-api>/ask
 # open site/index.html
@@ -83,5 +83,11 @@ python pipeline/render.py --chat-api-url https://<your-api>/ask
 # deploy the AWS stack
 cd cdk && npm install && npx cdk deploy
 ```
+
+## Data source and credits
+
+Garmin data is pulled with [python-garminconnect](https://github.com/cyberjunky/python-garminconnect)
+by cyberjunky, the community Python client for the Garmin Connect API. Token-based
+auth is cached locally so it logs in once (with MFA) and reuses the token after.
 
 Built with [Kiro](https://kiro.dev). Data via Garmin Connect.

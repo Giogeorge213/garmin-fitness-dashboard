@@ -1,0 +1,2 @@
+# Garmin Connect data pull. Everything else in pipeline/ is Python standard library.
+garminconnect>=0.3.6
