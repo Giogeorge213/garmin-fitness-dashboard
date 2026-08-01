@@ -529,7 +529,7 @@ document.getElementById("chatform").addEventListener("submit", ev => {
   ask(q);
 });
 
-// ---- Route map (Leaflet + CARTO dark tiles) -------------------------------
+// ---- Route map (Leaflet + CARTO light tiles, Canvas renderer) -------------
 const SPORT_COLORS = {
   running: "#0a7d33", treadmill_running: "#0a7d33", trail_running: "#0a7d33",
   cycling: "#ff9900", road_biking: "#ff9900", gravel_cycling: "#ff9900", mountain_biking: "#ff9900",
@@ -549,33 +549,46 @@ async function drawMap() {
   }
   if (!data.routes || !data.routes.length) { $("mapNote").textContent = "No route data available."; return; }
 
-  const center = data.center || data.routes[0].coords[0];
-  // Canvas renderer: redraws every feature on each pan/zoom (SVG drops paths
-  // with this many polylines). padding keeps lines drawn past the viewport
-  // edge so they don't clip while panning.
-  const map = L.map("map", { renderer: L.canvas({ padding: 0.5 }) }).setView(center, 11);
+  const el = document.getElementById("map");
+  // Wait until the card has laid out with real dimensions. Creating a Leaflet
+  // map on a 0-size element is what made canvas paint nothing.
+  await new Promise(resolve => {
+    const ok = () => el.clientWidth > 0 && el.clientHeight > 0;
+    if (ok()) return resolve();
+    const ro = new ResizeObserver(() => { if (ok()) { ro.disconnect(); resolve(); } });
+    ro.observe(el);
+    setTimeout(() => { ro.disconnect(); resolve(); }, 3000);
+  });
+
+  // Activities span the globe (AZ, TX, abroad). Fitting ALL of them zooms out
+  // to the whole world where every route is an invisible dot. Open instead on
+  // the densest ~1-degree cluster at city zoom; zoom out to see the rest.
+  const cells = {};
+  data.routes.forEach(r => {
+    if (!r.coords || !r.coords.length) return;
+    const [la, ln] = r.coords[0];
+    const k = Math.round(la) + "," + Math.round(ln);
+    (cells[k] = cells[k] || []).push([la, ln]);
+  });
+  let best = [], bestN = 0;
+  for (const k in cells) if (cells[k].length > bestN) { bestN = cells[k].length; best = cells[k]; }
+  const clat = best.reduce((s, c) => s + c[0], 0) / best.length;
+  const clng = best.reduce((s, c) => s + c[1], 0) / best.length;
+
+  const map = L.map(el, { renderer: L.canvas({ padding: 0.5 }) }).setView([clat, clng], 10);
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     { maxZoom: 19, subdomains: "abcd", attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
 
-  const bounds = [];
   data.routes.forEach(r => {
     if (!r.coords || r.coords.length < 2) return;
-    L.polyline(r.coords, { color: SPORT_COLORS[r.sport] || "#5c6b80", weight: 3, opacity: 0.85 }).addTo(map);
-    for (const c of r.coords) bounds.push(c);
+    const color = SPORT_COLORS[r.sport] || "#5c6b80";
+    L.polyline(r.coords, { color, weight: 3, opacity: 0.85 }).addTo(map);
+    // Fixed-pixel dot at the start so every location stays visible when zoomed out.
+    L.circleMarker(r.coords[0], { radius: 3, weight: 0, fillColor: color, fillOpacity: 0.75 }).addTo(map);
   });
 
-  // Canvas paints nothing until the container has a real size. refit() sets
-  // the initial view (invalidateSize + fitBounds); resize() just re-measures
-  // and repaints the current view without yanking the user's pan/zoom.
-  const refit = () => { map.invalidateSize(); if (bounds.length) map.fitBounds(bounds, { padding: [20, 20] }); };
-  const resize = () => map.invalidateSize();
-  const el = document.getElementById("map");
-  if (window.ResizeObserver) { new ResizeObserver(resize).observe(el); }
-  requestAnimationFrame(() => requestAnimationFrame(refit));  // after first layout
-  window.addEventListener("load", () => setTimeout(refit, 150));
-  setTimeout(refit, 600);                                     // slow tile/layout settle
-
-  $("mapCount").textContent = "(" + data.routes.length + " GPS activities \u00b7 home clipped)";
+  map.invalidateSize();
+  $("mapCount").textContent = "(" + data.routes.length + " GPS activities \u00b7 zoom out for all locations)";
 }
 
 // Run each section independently so a failure in one never blanks the others.
