@@ -4,5 +4,15 @@
     "value": "15:52:30",
     "date": "2025-11-16",
     "detail": "Swim 2:19:40 \u00b7 Bike 7:24:38 \u00b7 Run 5:49:42"
+  },
+  "marathon_pr": {
+    "value": "2:51:49",
+    "date": "2006-02-19",
+    "replaces": "pr_Marathon"
+  },
+  "half_pr": {
+    "value": "1:29:34",
+    "date": "2005-11-13",
+    "replaces": "pr_Half"
   }
 }

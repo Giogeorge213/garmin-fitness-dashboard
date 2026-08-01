@@ -602,13 +602,21 @@ def main():
     data = build_data(activities, health, race_pred)
 
     # Merge in any manually-entered records (survives every re-render).
+    # An entry with "replaces": "<records key>" overwrites a computed PR in
+    # place (keeps ordering, no duplicate). Otherwise it renders as its own
+    # tile at the top of the records card.
     manual = load_json(args.manual_records, default={}) or {}
-    data["manual_records"] = [
-        {"label": v.get("label", k), "value": v.get("value"),
-         "date": v.get("date", ""), "detail": v.get("detail", "")}
-        for k, v in manual.items()
-        if isinstance(v, dict) and v.get("value") and v.get("value") != "REPLACE_ME"
-    ]
+    manual_list = []
+    for k, v in manual.items():
+        if not (isinstance(v, dict) and v.get("value") and v.get("value") != "REPLACE_ME"):
+            continue
+        repl = v.get("replaces")
+        if repl:
+            data["records"][repl] = {"time": v["value"], "date": v.get("date", "")}
+        else:
+            manual_list.append({"label": v.get("label", k), "value": v["value"],
+                                "date": v.get("date", ""), "detail": v.get("detail", "")})
+    data["manual_records"] = manual_list
 
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "data.json"), "w", encoding="utf-8") as f:
