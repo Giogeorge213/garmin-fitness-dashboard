@@ -309,8 +309,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.5 'Amazon Ember','Segoe UI',Roboto,Helvetica,Arial,sans-serif}
   .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
-  header h1{margin:0 0 4px;font-size:26px;color:var(--navy)}
-  header p{margin:0;color:var(--muted)}
+  header{margin-bottom:8px}
+  header h1{margin:0;font-size:42px;font-weight:800;line-height:1.05;letter-spacing:-1px;
+            background:linear-gradient(90deg,#16305c 0%,#2f81f7 60%,#6b3fa0 100%);
+            -webkit-background-clip:text;background-clip:text;color:transparent}
+  header h1::after{content:"";display:block;width:72px;height:5px;margin-top:12px;border-radius:3px;
+                   background:linear-gradient(90deg,#ff9900,#6b3fa0);-webkit-background-clip:border-box;background-clip:border-box}
+  header p{margin:14px 0 0;color:var(--muted);font-size:15px;font-weight:500}
   .grid{display:grid;gap:20px}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:24px 0}
   .cards{grid-template-columns:repeat(auto-fit,minmax(440px,1fr))}
