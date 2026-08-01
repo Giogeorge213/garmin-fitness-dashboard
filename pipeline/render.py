@@ -568,8 +568,9 @@ async function drawMap() {
     setTimeout(() => { ro.disconnect(); resolve(); }, 3000);
   });
 
-  // Default SVG renderer: paints reliably here (canvas rendered nothing).
-  const map = L.map(el);
+  // SVG renderer (canvas painted nothing here) with large padding: it pre-draws
+  // features well beyond the viewport so they don't blank out when you drag/pan.
+  const map = L.map(el, { renderer: L.svg({ padding: 3 }) });
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     { maxZoom: 19, subdomains: "abcd", attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
 
