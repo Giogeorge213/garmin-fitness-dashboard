@@ -195,9 +195,44 @@ def build_data(activities, health, race_pred):
         "longest_ride": _rec_dist("Cycling"),
         "longest_swim": _rec_dist("Swimming"),
     }
-    prow, pval = _best("Running", "pace_min_per_mi", want_min=True, min_dist=1.0)
-    if prow:
-        records["fastest_pace"] = {"pace": _pace_str(pval), "date": prow.get("date")}
+    # Fastest time PRs for standard race distances (best run within each band,
+    # by moving time). Approximate: uses full-activity moving time for runs near
+    # the target distance, and picks the fastest one.
+    def _time_str(mins):
+        total = int(round(mins * 60))
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+    def _fastest_time(lo, hi):
+        br, bt = None, None
+        for a in activities:
+            if group_sport(a.get("sport") or "") != "Running":
+                continue
+            dist = fnum(a.get("distance_mi"))
+            t = fnum(a.get("moving_time_min"))
+            if dist is None or t is None or t <= 0 or not (lo <= dist <= hi):
+                continue
+            if bt is None or t < bt:
+                bt, br = t, a
+        return br, bt
+
+    for label, lo, hi in (("5K", 3.05, 3.35), ("10K", 6.0, 6.5),
+                          ("Half", 13.0, 13.4), ("Marathon", 26.0, 26.6)):
+        rrow, rt = _fastest_time(lo, hi)
+        if rrow:
+            records[f"pr_{label}"] = {"time": _time_str(rt), "date": rrow.get("date")}
+
+    # Most steps in a single day (from daily wellness)
+    srow, sbest = None, None
+    for r in health:
+        v = fnum(r.get("steps"))
+        if v is None:
+            continue
+        if sbest is None or v > sbest:
+            sbest, srow = v, r
+    if srow:
+        records["most_steps"] = {"steps": int(sbest), "date": srow.get("date")}
 
     # ---- Weekly commentary (last 7 days vs the week before) -------------
     weekly_commentary = ""
@@ -328,7 +363,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="card c-orange"><h2>Avg Daily Steps by Month</h2><canvas id="stepsChart"></canvas></div>
     <div class="card c-purple"><h2>Floors Climbed by Month</h2><canvas id="floorsChart"></canvas></div>
     <div class="card c-teal"><h2>Avg Sleep by Month (h)</h2><canvas id="sleepChart"></canvas></div>
-    <div class="card c-green"><h2>VO2 Max</h2><canvas id="vo2Chart"></canvas></div>
   </section>
 
   <section class="card c-pink" style="margin-top:20px" id="mapCard">
@@ -427,13 +461,6 @@ function charts() {
             datasets: [{ data: DATA.monthly_sleep.values, borderColor: TEAL, backgroundColor: "transparent", tension: .3, pointRadius: 0 }] },
     options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
-
-  new Chart($("vo2Chart"), {
-    type: "line",
-    data: { labels: DATA.vo2max.labels,
-            datasets: [{ data: DATA.vo2max.values, borderColor: GREEN, backgroundColor: "transparent", tension: .3, pointRadius: 0 }] },
-    options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
-  });
 }
 
 function commentary() {
@@ -445,10 +472,14 @@ function commentary() {
 function records() {
   const r = DATA.records || {};
   const items = [];
+  ["5K", "10K", "Half", "Marathon"].forEach(k => {
+    const pr = r["pr_" + k];
+    if (pr) items.push(["Fastest " + k, pr.time, pr.date]);
+  });
   if (r.longest_run)   items.push(["Longest run",   fmt(r.longest_run.mi) + " mi",   r.longest_run.date]);
   if (r.longest_ride)  items.push(["Longest ride",  fmt(r.longest_ride.mi) + " mi",  r.longest_ride.date]);
   if (r.longest_swim)  items.push(["Longest swim",  fmt(r.longest_swim.mi) + " mi",  r.longest_swim.date]);
-  if (r.fastest_pace)  items.push(["Fastest pace",  r.fastest_pace.pace + " /mi",    r.fastest_pace.date]);
+  if (r.most_steps)    items.push(["Most steps (1 day)", fmt(r.most_steps.steps), r.most_steps.date]);
   $("records").innerHTML = items.map(([l, n, s]) =>
     `<div><div class="n">${n}</div><div class="l">${l}</div><div class="l" style="opacity:.65">${s || ""}</div></div>`
   ).join("") || "<div class='l'>no records</div>";
