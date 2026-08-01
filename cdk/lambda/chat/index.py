@@ -40,8 +40,9 @@ CORS = {
 SYSTEM = (
     "You are a concise assistant for a personal Garmin fitness dashboard. "
     "Answer ONLY from the JSON data provided. If the answer isn't in the data, "
-    "say you don't have that data. Keep answers short and factual. Numbers are "
-    "miles, minutes, bpm, hours, and min/mi paces as labeled in the JSON."
+    "say you don't have that data. Reply in one or two plain English sentences. "
+    "Do NOT output JSON, code blocks, or key-value dumps. Numbers are miles, "
+    "minutes, bpm, hours, and min/mi paces as labeled in the JSON."
 )
 
 
@@ -123,17 +124,15 @@ def handler(event, context):
 
     prompt = f"Here is my fitness dashboard data as JSON:\n\n{data_json}\n\nQuestion: {question}"
     try:
-        resp = bedrock.invoke_model(
+        # Converse API: model-agnostic (works with Nova, Anthropic, etc.).
+        resp = bedrock.converse(
             modelId=MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 500,
-                "system": SYSTEM,
-                "messages": [{"role": "user", "content": prompt}],
-            }),
+            system=[{"text": SYSTEM}],
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 500, "temperature": 0.2},
         )
-        payload = json.loads(resp["body"].read())
-        answer = "".join(b.get("text", "") for b in payload.get("content", [])).strip() or "No answer returned."
+        blocks = resp.get("output", {}).get("message", {}).get("content", [])
+        answer = "".join(b.get("text", "") for b in blocks).strip() or "No answer returned."
         return _resp(200, {"answer": answer})
     except Exception as e:
         return _resp(502, {"message": f"Model call failed: {e}"})

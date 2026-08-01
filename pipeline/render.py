@@ -130,6 +130,19 @@ def build_data(activities, health, race_pred):
     monthly_steps = monthly_avg("steps", 0)
     monthly_sleep = monthly_avg("sleep_hours", 2)
 
+    # ---- Monthly floors climbed (sum per month) -------------------------
+    def monthly_sum(col, rnd=0):
+        tot = defaultdict(float)
+        for r in health:
+            v = fnum(r.get(col))
+            m = (r.get("date") or "")[:7]
+            if v is not None and m:
+                tot[m] += v
+        ms = sorted(tot.keys())
+        return {"labels": ms, "values": [round(tot[m], rnd) for m in ms]}
+
+    monthly_floors = monthly_sum("floors", 0)
+
     # ---- VO2 max time series --------------------------------------------
     vo2 = {"labels": [], "values": []}
     for r in health:
@@ -151,15 +164,72 @@ def build_data(activities, health, race_pred):
     avg_sleep = round(sum(sleep_vals) / len(sleep_vals), 2) if sleep_vals else None
     latest_vo2 = {"date": vo2["labels"][-1], "value": vo2["values"][-1]} if vo2["labels"] else None
 
-    # ---- Race predictions (seconds -> pretty) ---------------------------
-    race = {}
-    if race_pred:
-        for key, label in (("time5K", "5K"), ("time10K", "10K"),
-                           ("timeHalfMarathon", "Half"), ("timeMarathon", "Marathon")):
-            secs = race_pred.get(key)
-            if secs:
-                race[label] = {"seconds": secs, "pretty": fmt_hms(secs)}
-        race["as_of"] = race_pred.get("calendarDate")
+    # ---- Personal records (best single efforts) -------------------------
+    def _pace_str(p):
+        m = int(p)
+        s = int(round((p - m) * 60))
+        if s == 60:
+            m, s = m + 1, 0
+        return f"{m}:{s:02d}"
+
+    def _best(group, key, want_min=False, min_dist=0.0):
+        br, bv = None, None
+        for a in activities:
+            if group_sport(a.get("sport") or "") != group:
+                continue
+            v = fnum(a.get(key))
+            if v is None or v <= 0:
+                continue
+            if min_dist and (fnum(a.get("distance_mi")) or 0) < min_dist:
+                continue
+            if bv is None or (v < bv if want_min else v > bv):
+                bv, br = v, a
+        return br, bv
+
+    def _rec_dist(group):
+        row, val = _best(group, "distance_mi")
+        return {"mi": round(val, 1), "date": row.get("date")} if row else None
+
+    records = {
+        "longest_run": _rec_dist("Running"),
+        "longest_ride": _rec_dist("Cycling"),
+        "longest_swim": _rec_dist("Swimming"),
+    }
+    prow, pval = _best("Running", "pace_min_per_mi", want_min=True, min_dist=1.0)
+    if prow:
+        records["fastest_pace"] = {"pace": _pace_str(pval), "date": prow.get("date")}
+
+    # ---- Weekly commentary (last 7 days vs the week before) -------------
+    weekly_commentary = ""
+    if date_max:
+        dmax = datetime.strptime(date_max, "%Y-%m-%d").date()
+
+        def _days_ago(s):
+            try:
+                return (dmax - datetime.strptime(s, "%Y-%m-%d").date()).days
+            except (TypeError, ValueError):
+                return None
+
+        def _in(s, lo, hi):
+            dd = _days_ago(s)
+            return dd is not None and lo <= dd < hi
+
+        wk = [a for a in activities if _in(a.get("date") or "", 0, 7)]
+        pv = [a for a in activities if _in(a.get("date") or "", 7, 14)]
+        wk_mi = sum(fnum(a.get("distance_mi")) or 0 for a in wk)
+        pv_mi = sum(fnum(a.get("distance_mi")) or 0 for a in pv)
+        gwk = defaultdict(float)
+        for a in wk:
+            gwk[group_sport(a.get("sport") or "")] += fnum(a.get("distance_mi")) or 0
+        bits = [f"{len(wk)} activities and {round(wk_mi)} mi in the last 7 days."]
+        tops = [f"{k} {round(v)} mi" for k, v in sorted(gwk.items(), key=lambda kv: kv[1], reverse=True) if v > 0]
+        if tops:
+            bits.append("Breakdown: " + ", ".join(tops) + ".")
+        if pv:
+            diff = wk_mi - pv_mi
+            word = "more" if diff >= 0 else "less"
+            bits.append(f"That is {round(abs(diff))} mi {word} than the week before.")
+        weekly_commentary = " ".join(bits)
 
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -178,13 +248,13 @@ def build_data(activities, health, race_pred):
             "total_steps": total_steps,
             "total_floors": total_floors,
         },
-        "sport_distribution": {"labels": [s for s, _ in sport_dist],
-                               "counts": [c for _, c in sport_dist]},
         "monthly_volume": monthly_volume,
         "monthly_steps": monthly_steps,
         "monthly_sleep": monthly_sleep,
+        "monthly_floors": monthly_floors,
         "vo2max": vo2,
-        "race_predictions": race,
+        "records": records,
+        "weekly_commentary": weekly_commentary,
     }
 
 
@@ -248,10 +318,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <section class="grid kpis" id="kpis"></section>
 
+  <section class="card c-orange" id="commentaryCard" style="margin-bottom:20px">
+    <h2>This Week</h2>
+    <p id="commentary" style="margin:0;color:var(--txt);font-size:15px"></p>
+  </section>
+
   <section class="grid cards">
     <div class="card c-blue"><h2>Monthly Training Volume (mi)</h2><canvas id="volChart"></canvas></div>
     <div class="card c-orange"><h2>Avg Daily Steps by Month</h2><canvas id="stepsChart"></canvas></div>
-    <div class="card c-purple"><h2>Sport Distribution</h2><canvas id="sportChart"></canvas></div>
+    <div class="card c-purple"><h2>Floors Climbed by Month</h2><canvas id="floorsChart"></canvas></div>
     <div class="card c-teal"><h2>Avg Sleep by Month (h)</h2><canvas id="sleepChart"></canvas></div>
     <div class="card c-green"><h2>VO2 Max</h2><canvas id="vo2Chart"></canvas></div>
   </section>
@@ -263,8 +338,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </section>
 
   <section class="card c-green" style="margin-top:20px">
-    <h2>Race Predictions <span id="raceAsOf" style="text-transform:none;font-weight:400"></span></h2>
-    <div class="race" id="race"></div>
+    <h2>Personal Records</h2>
+    <div class="race" id="records"></div>
   </section>
 
   <section class="card c-purple chat">
@@ -339,11 +414,11 @@ function charts() {
     options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 
-  new Chart($("sportChart"), {
-    type: "doughnut",
-    data: { labels: DATA.sport_distribution.labels,
-            datasets: [{ data: DATA.sport_distribution.counts, backgroundColor: PIE, borderWidth: 0 }] },
-    options: { maintainAspectRatio: false, plugins: { legend: { position: "right" } } },
+  new Chart($("floorsChart"), {
+    type: "bar",
+    data: { labels: DATA.monthly_floors.labels,
+            datasets: [{ data: DATA.monthly_floors.values, backgroundColor: PURPLE }] },
+    options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 
   new Chart($("sleepChart"), {
@@ -361,13 +436,22 @@ function charts() {
   });
 }
 
-function racePredictions() {
-  const r = DATA.race_predictions || {};
-  if (r.as_of) $("raceAsOf").textContent = "(as of " + r.as_of + ")";
-  const order = ["5K", "10K", "Half", "Marathon"];
-  $("race").innerHTML = order.filter(k => r[k]).map(k =>
-    `<div><div class="n">${r[k].pretty}</div><div class="l">${k}</div></div>`
-  ).join("") || "<div class='l'>no prediction available</div>";
+function commentary() {
+  const c = DATA.weekly_commentary;
+  if (c) { $("commentary").textContent = c; }
+  else { const el = $("commentaryCard"); if (el) el.style.display = "none"; }
+}
+
+function records() {
+  const r = DATA.records || {};
+  const items = [];
+  if (r.longest_run)   items.push(["Longest run",   fmt(r.longest_run.mi) + " mi",   r.longest_run.date]);
+  if (r.longest_ride)  items.push(["Longest ride",  fmt(r.longest_ride.mi) + " mi",  r.longest_ride.date]);
+  if (r.longest_swim)  items.push(["Longest swim",  fmt(r.longest_swim.mi) + " mi",  r.longest_swim.date]);
+  if (r.fastest_pace)  items.push(["Fastest pace",  r.fastest_pace.pace + " /mi",    r.fastest_pace.date]);
+  $("records").innerHTML = items.map(([l, n, s]) =>
+    `<div><div class="n">${n}</div><div class="l">${l}</div><div class="l" style="opacity:.65">${s || ""}</div></div>`
+  ).join("") || "<div class='l'>no records</div>";
 }
 
 // ---- Chat -----------------------------------------------------------------
@@ -408,9 +492,9 @@ document.getElementById("chatform").addEventListener("submit", ev => {
 // ---- Route map (Leaflet + CARTO dark tiles) -------------------------------
 const SPORT_COLORS = {
   running: "#0a7d33", treadmill_running: "#0a7d33", trail_running: "#0a7d33",
-  cycling: "#2f81f7", road_biking: "#2f81f7", gravel_cycling: "#2f81f7", mountain_biking: "#2f81f7",
-  lap_swimming: "#0aa3b0", open_water_swimming: "#0aa3b0",
-  hiking: "#ff9900", walking: "#6b3fa0",
+  cycling: "#ff9900", road_biking: "#ff9900", gravel_cycling: "#ff9900", mountain_biking: "#ff9900",
+  lap_swimming: "#2f81f7", open_water_swimming: "#2f81f7",
+  hiking: "#c2478a", walking: "#6b3fa0",
 };
 
 async function drawMap() {
@@ -447,7 +531,7 @@ async function drawMap() {
 }
 
 // Run each section independently so a failure in one never blanks the others.
-[subtitle, kpis, charts, racePredictions, drawMap].forEach(fn => {
+[subtitle, kpis, commentary, charts, records, drawMap].forEach(fn => {
   try { fn(); } catch (e) { console.error(fn.name, e); }
 });
 """
@@ -491,7 +575,7 @@ def main():
     print(f"built {args.out_dir}/index.html  ({data['kpis']['total_activities']} activities, "
           f"{len(health)} health days)")
     print(f"  monthly volume points: {len(data['monthly_volume']['labels'])}")
-    print(f"  sport groups: {data['sport_distribution']['labels']}")
+    print(f"  records: {list(data['records'].keys())}")
 
 
 if __name__ == "__main__":
