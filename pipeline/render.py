@@ -105,17 +105,34 @@ def build_data(activities, health, race_pred):
             group_dist[g] += d
     sport_dist = sorted(group_counts.items(), key=lambda kv: kv[1], reverse=True)
 
-    # ---- Monthly training volume (miles) for distance sports ------------
-    vol = defaultdict(float)
+    # ---- Monthly training hours (all sports) + miles run / biked --------
+    hrs = defaultdict(float)
+    run_mi = defaultdict(float)
+    bike_mi = defaultdict(float)
     for a in activities:
-        if a.get("sport") in DISTANCE_SPORTS:
-            m, d = a.get("month"), fnum(a.get("distance_mi"))
-            if m and d:
-                vol[m] += d
-    months = sorted(vol.keys())
-    monthly_volume = {"labels": months, "miles": [round(vol[m], 1) for m in months]}
+        m = a.get("month")
+        if not m:
+            continue
+        t = fnum(a.get("moving_time_min"))
+        if t:
+            hrs[m] += t / 60.0
+        g = group_sport(a.get("sport") or "")
+        d = fnum(a.get("distance_mi"))
+        if d:
+            if g == "Running":
+                run_mi[m] += d
+            elif g == "Cycling":
+                bike_mi[m] += d
 
-    # ---- Monthly wellness roll-ups (avg per day, from daily wellness) ---
+    def _series(dd, rnd=1):
+        ks = sorted(dd.keys())
+        return {"labels": ks, "values": [round(dd[k], rnd) for k in ks]}
+
+    monthly_hours = _series(hrs, 1)
+    monthly_run = _series(run_mi, 1)
+    monthly_bike = _series(bike_mi, 1)
+
+    # ---- Monthly avg daily steps (from daily wellness) ------------------
     def monthly_avg(col, rnd=0):
         tot, n = defaultdict(float), defaultdict(int)
         for r in health:
@@ -128,20 +145,6 @@ def build_data(activities, health, race_pred):
         return {"labels": ms, "values": [round(tot[m] / n[m], rnd) for m in ms]}
 
     monthly_steps = monthly_avg("steps", 0)
-    monthly_sleep = monthly_avg("sleep_hours", 2)
-
-    # ---- Monthly floors climbed (sum per month) -------------------------
-    def monthly_sum(col, rnd=0):
-        tot = defaultdict(float)
-        for r in health:
-            v = fnum(r.get(col))
-            m = (r.get("date") or "")[:7]
-            if v is not None and m:
-                tot[m] += v
-        ms = sorted(tot.keys())
-        return {"labels": ms, "values": [round(tot[m], rnd) for m in ms]}
-
-    monthly_floors = monthly_sum("floors", 0)
 
     # ---- VO2 max time series --------------------------------------------
     vo2 = {"labels": [], "values": []}
@@ -283,11 +286,10 @@ def build_data(activities, health, race_pred):
             "total_steps": total_steps,
             "total_floors": total_floors,
         },
-        "monthly_volume": monthly_volume,
+        "monthly_hours": monthly_hours,
         "monthly_steps": monthly_steps,
-        "monthly_sleep": monthly_sleep,
-        "monthly_floors": monthly_floors,
-        "vo2max": vo2,
+        "monthly_run": monthly_run,
+        "monthly_bike": monthly_bike,
         "records": records,
         "weekly_commentary": weekly_commentary,
     }
@@ -359,10 +361,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </section>
 
   <section class="grid cards">
-    <div class="card c-blue"><h2>Monthly Training Volume (mi)</h2><canvas id="volChart"></canvas></div>
+    <div class="card c-blue"><h2>Monthly Training Hours</h2><canvas id="hoursChart"></canvas></div>
     <div class="card c-orange"><h2>Avg Daily Steps by Month</h2><canvas id="stepsChart"></canvas></div>
-    <div class="card c-purple"><h2>Floors Climbed by Month</h2><canvas id="floorsChart"></canvas></div>
-    <div class="card c-teal"><h2>Avg Sleep by Month (h)</h2><canvas id="sleepChart"></canvas></div>
+    <div class="card c-green"><h2>Miles Run by Month</h2><canvas id="runChart"></canvas></div>
+    <div class="card c-teal"><h2>Miles Biked by Month</h2><canvas id="bikeChart"></canvas></div>
   </section>
 
   <section class="card c-pink" style="margin-top:20px" id="mapCard">
@@ -434,10 +436,10 @@ function kpis() {
 }
 
 function charts() {
-  new Chart($("volChart"), {
+  new Chart($("hoursChart"), {
     type: "bar",
-    data: { labels: DATA.monthly_volume.labels,
-            datasets: [{ data: DATA.monthly_volume.miles, backgroundColor: BLUE }] },
+    data: { labels: DATA.monthly_hours.labels,
+            datasets: [{ data: DATA.monthly_hours.values, backgroundColor: BLUE }] },
     options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 
@@ -448,17 +450,17 @@ function charts() {
     options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 
-  new Chart($("floorsChart"), {
+  new Chart($("runChart"), {
     type: "bar",
-    data: { labels: DATA.monthly_floors.labels,
-            datasets: [{ data: DATA.monthly_floors.values, backgroundColor: PURPLE }] },
+    data: { labels: DATA.monthly_run.labels,
+            datasets: [{ data: DATA.monthly_run.values, backgroundColor: GREEN }] },
     options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 
-  new Chart($("sleepChart"), {
-    type: "line",
-    data: { labels: DATA.monthly_sleep.labels,
-            datasets: [{ data: DATA.monthly_sleep.values, borderColor: TEAL, backgroundColor: "transparent", tension: .3, pointRadius: 0 }] },
+  new Chart($("bikeChart"), {
+    type: "bar",
+    data: { labels: DATA.monthly_bike.labels,
+            datasets: [{ data: DATA.monthly_bike.values, backgroundColor: TEAL }] },
     options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 }
@@ -472,6 +474,7 @@ function commentary() {
 function records() {
   const r = DATA.records || {};
   const items = [];
+  (DATA.manual_records || []).forEach(m => items.push([m.label, m.value, m.date]));
   ["5K", "10K", "Half", "Marathon"].forEach(k => {
     const pr = r["pr_" + k];
     if (pr) items.push(["Fastest " + k, pr.time, pr.date]);
@@ -582,6 +585,8 @@ def main():
     ap.add_argument("--data-dir", default="../garmin-project/out")
     ap.add_argument("--health-file", default="pipeline/out/curated/wellness_daily.csv",
                     help="curated full-history daily wellness CSV (from transform_wellness.py)")
+    ap.add_argument("--manual-records", default="pipeline/manual_records.json",
+                    help="optional JSON of manually-entered records (e.g. Ironman finish time)")
     ap.add_argument("--out-dir", default="./site")
     ap.add_argument("--chat-api-url", default="")
     ap.add_argument("--gh-repo", default="giorgram/garmin-fitness-dashboard")
@@ -595,6 +600,14 @@ def main():
 
     data = build_data(activities, health, race_pred)
 
+    # Merge in any manually-entered records (survives every re-render).
+    manual = load_json(args.manual_records, default={}) or {}
+    data["manual_records"] = [
+        {"label": v.get("label", k), "value": v.get("value"), "date": v.get("date", "")}
+        for k, v in manual.items()
+        if isinstance(v, dict) and v.get("value") and v.get("value") != "REPLACE_ME"
+    ]
+
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "data.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, separators=(",", ":"))
@@ -605,8 +618,8 @@ def main():
 
     print(f"built {args.out_dir}/index.html  ({data['kpis']['total_activities']} activities, "
           f"{len(health)} health days)")
-    print(f"  monthly volume points: {len(data['monthly_volume']['labels'])}")
-    print(f"  records: {list(data['records'].keys())}")
+    print(f"  monthly hours points: {len(data['monthly_hours']['labels'])}")
+    print(f"  records: {list(data['records'].keys())} + manual {[m['label'] for m in data.get('manual_records', [])]}")
 
 
 if __name__ == "__main__":
