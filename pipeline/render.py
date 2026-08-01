@@ -568,9 +568,13 @@ async function drawMap() {
     setTimeout(() => { ro.disconnect(); resolve(); }, 3000);
   });
 
-  // SVG renderer (canvas painted nothing here) with large padding: it pre-draws
-  // features well beyond the viewport so they don't blank out when you drag/pan.
-  const map = L.map(el, { renderer: L.svg({ padding: 3 }) });
+  // Panning blanks the SVG features on this globe-spanning dataset, so dragging
+  // is locked. Zoom stays on (zoom triggers a full redraw, which paints fine).
+  const map = L.map(el, {
+    renderer: L.svg({ padding: 3 }),
+    dragging: false, keyboard: false, boxZoom: false,
+    scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true,
+  });
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     { maxZoom: 19, subdomains: "abcd", attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
 
@@ -592,7 +596,8 @@ async function drawMap() {
   else map.setView(data.center || [20, 0], 2);
   requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize()));
   setTimeout(() => map.invalidateSize(), 400);
-  $("mapCount").textContent = "(" + data.routes.length + " GPS activities \u00b7 drag & zoom to explore)";
+  $("mapCount").textContent = "(" + data.routes.length + " GPS activities)";
+  $("mapNote").textContent = "Each dot marks where an activity started. Scroll or use +/- to zoom.";
 }
 
 // Run each section independently so a failure in one never blanks the others.
