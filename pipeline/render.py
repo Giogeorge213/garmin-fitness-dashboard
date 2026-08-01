@@ -474,7 +474,7 @@ function commentary() {
 function records() {
   const r = DATA.records || {};
   const items = [];
-  (DATA.manual_records || []).forEach(m => items.push([m.label, m.value, m.date]));
+  (DATA.manual_records || []).forEach(m => items.push([m.label, m.value, m.date, m.detail]));
   ["5K", "10K", "Half", "Marathon"].forEach(k => {
     const pr = r["pr_" + k];
     if (pr) items.push(["Fastest " + k, pr.time, pr.date]);
@@ -483,8 +483,11 @@ function records() {
   if (r.longest_ride)  items.push(["Longest ride",  fmt(r.longest_ride.mi) + " mi",  r.longest_ride.date]);
   if (r.longest_swim)  items.push(["Longest swim",  fmt(r.longest_swim.mi) + " mi",  r.longest_swim.date]);
   if (r.most_steps)    items.push(["Most steps (1 day)", fmt(r.most_steps.steps), r.most_steps.date]);
-  $("records").innerHTML = items.map(([l, n, s]) =>
-    `<div><div class="n">${n}</div><div class="l">${l}</div><div class="l" style="opacity:.65">${s || ""}</div></div>`
+  $("records").innerHTML = items.map(([l, n, s, d]) =>
+    `<div><div class="n">${n}</div><div class="l">${l}</div>` +
+    `<div class="l" style="opacity:.65">${s || ""}</div>` +
+    (d ? `<div class="l" style="opacity:.65;margin-top:3px">${d}</div>` : "") +
+    `</div>`
   ).join("") || "<div class='l'>no records</div>";
 }
 
@@ -603,7 +606,8 @@ def main():
     # Merge in any manually-entered records (survives every re-render).
     manual = load_json(args.manual_records, default={}) or {}
     data["manual_records"] = [
-        {"label": v.get("label", k), "value": v.get("value"), "date": v.get("date", "")}
+        {"label": v.get("label", k), "value": v.get("value"),
+         "date": v.get("date", ""), "detail": v.get("detail", "")}
         for k, v in manual.items()
         if isinstance(v, dict) and v.get("value") and v.get("value") != "REPLACE_ME"
     ]
