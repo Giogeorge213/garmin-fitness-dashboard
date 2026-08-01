@@ -18,7 +18,7 @@ import csv
 import json
 import os
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # Sports counted as "distance" sports for the monthly-miles chart.
 DISTANCE_SPORTS = {
@@ -236,29 +236,37 @@ def build_data(activities, health, race_pred):
     if srow:
         records["most_steps"] = {"steps": int(sbest), "date": srow.get("date")}
 
-    # ---- Weekly commentary (last 7 days vs the week before) -------------
+    # ---- Commentary for the last FULL week of data (Mon-Sun) ------------
     weekly_commentary = ""
     if date_max:
         dmax = datetime.strptime(date_max, "%Y-%m-%d").date()
+        # Monday of the week containing the latest activity. If that week isn't
+        # complete yet (latest day isn't Sunday), step back to the prior week.
+        this_monday = dmax - timedelta(days=dmax.weekday())
+        week_start = this_monday if dmax.weekday() == 6 else this_monday - timedelta(days=7)
+        week_end = week_start + timedelta(days=6)
+        prev_start = week_start - timedelta(days=7)
+        prev_end = week_start - timedelta(days=1)
 
-        def _days_ago(s):
+        def _pd(s):
             try:
-                return (dmax - datetime.strptime(s, "%Y-%m-%d").date()).days
+                return datetime.strptime(s, "%Y-%m-%d").date()
             except (TypeError, ValueError):
                 return None
 
-        def _in(s, lo, hi):
-            dd = _days_ago(s)
-            return dd is not None and lo <= dd < hi
+        def _btw(s, lo, hi):
+            dd = _pd(s)
+            return dd is not None and lo <= dd <= hi
 
-        wk = [a for a in activities if _in(a.get("date") or "", 0, 7)]
-        pv = [a for a in activities if _in(a.get("date") or "", 7, 14)]
+        wk = [a for a in activities if _btw(a.get("date") or "", week_start, week_end)]
+        pv = [a for a in activities if _btw(a.get("date") or "", prev_start, prev_end)]
         wk_mi = sum(fnum(a.get("distance_mi")) or 0 for a in wk)
         pv_mi = sum(fnum(a.get("distance_mi")) or 0 for a in pv)
         gwk = defaultdict(float)
         for a in wk:
             gwk[group_sport(a.get("sport") or "")] += fnum(a.get("distance_mi")) or 0
-        bits = [f"{len(wk)} activities and {round(wk_mi)} mi in the last 7 days."]
+        rng = f"{week_start:%b} {week_start.day}\u2013{week_end:%b} {week_end.day}"
+        bits = [f"Week of {rng}: {len(wk)} activities and {round(wk_mi)} mi."]
         tops = [f"{k} {round(v)} mi" for k, v in sorted(gwk.items(), key=lambda kv: kv[1], reverse=True) if v > 0]
         if tops:
             bits.append("Breakdown: " + ", ".join(tops) + ".")
@@ -360,7 +368,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <section class="grid kpis" id="kpis"></section>
 
   <section class="card c-orange" id="commentaryCard" style="margin-bottom:20px">
-    <h2>This Week</h2>
+    <h2>Last Full Week</h2>
     <p id="commentary" style="margin:0;color:var(--txt);font-size:15px"></p>
   </section>
 
@@ -560,35 +568,30 @@ async function drawMap() {
     setTimeout(() => { ro.disconnect(); resolve(); }, 3000);
   });
 
-  // Activities span the globe (AZ, TX, abroad). Fitting ALL of them zooms out
-  // to the whole world where every route is an invisible dot. Open instead on
-  // the densest ~1-degree cluster at city zoom; zoom out to see the rest.
-  const cells = {};
-  data.routes.forEach(r => {
-    if (!r.coords || !r.coords.length) return;
-    const [la, ln] = r.coords[0];
-    const k = Math.round(la) + "," + Math.round(ln);
-    (cells[k] = cells[k] || []).push([la, ln]);
-  });
-  let best = [], bestN = 0;
-  for (const k in cells) if (cells[k].length > bestN) { bestN = cells[k].length; best = cells[k]; }
-  const clat = best.reduce((s, c) => s + c[0], 0) / best.length;
-  const clng = best.reduce((s, c) => s + c[1], 0) / best.length;
-
-  const map = L.map(el, { renderer: L.canvas({ padding: 0.5 }) }).setView([clat, clng], 10);
+  // Default SVG renderer: paints reliably here (canvas rendered nothing).
+  const map = L.map(el);
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     { maxZoom: 19, subdomains: "abcd", attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
 
+  // Routes as lines (visible when you zoom into a region) + a fixed-size dot at
+  // each start, so every location shows even in the zoomed-out overview.
+  const pts = [];
   data.routes.forEach(r => {
     if (!r.coords || r.coords.length < 2) return;
     const color = SPORT_COLORS[r.sport] || "#5c6b80";
     L.polyline(r.coords, { color, weight: 3, opacity: 0.85 }).addTo(map);
-    // Fixed-pixel dot at the start so every location stays visible when zoomed out.
-    L.circleMarker(r.coords[0], { radius: 3, weight: 0, fillColor: color, fillOpacity: 0.75 }).addTo(map);
+    L.circleMarker(r.coords[0], { radius: 3, weight: 0, fillColor: color, fillOpacity: 0.8 }).addTo(map);
+    pts.push(r.coords[0]);
   });
 
+  // Open on the full overview of everywhere trained. invalidateSize first so
+  // fitBounds measures the real container; SVG repaints on each call.
   map.invalidateSize();
-  $("mapCount").textContent = "(" + data.routes.length + " GPS activities \u00b7 zoom out for all locations)";
+  if (pts.length) map.fitBounds(pts, { padding: [20, 20], maxZoom: 11 });
+  else map.setView(data.center || [20, 0], 2);
+  requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize()));
+  setTimeout(() => map.invalidateSize(), 400);
+  $("mapCount").textContent = "(" + data.routes.length + " GPS activities \u00b7 drag & zoom to explore)";
 }
 
 // Run each section independently so a failure in one never blanks the others.
