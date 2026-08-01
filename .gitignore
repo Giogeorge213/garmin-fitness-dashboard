@@ -1,0 +1,43 @@
+# ============================================================================
+# Personal data: NEVER commit real health / activity / GPS data.
+# The live dashboard reads these from S3; git carries only code.
+# ============================================================================
+
+# Raw + curated pipeline data (wellness JSON, activity CSVs, curated CSVs)
+pipeline/out/
+data/
+
+# Generated site: render.py INLINES personal data into index.html/data.json,
+# and routes.json contains GPS traces. All generated -> not tracked.
+site/
+
+# Any stray Garmin exports anywhere in the tree
+**/garmin_*.json
+**/garmin_*.csv
+**/garmin_*.parquet
+**/wellness_daily.csv
+**/race_splits.csv
+**/routes.json
+
+# Garmin auth tokens
+.garmin_tokens/
+*.token
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# CDK / Node
+cdk/node_modules/
+cdk/cdk.out/
+cdk/**/*.js
+cdk/**/*.d.ts
+cdk.context.json
+node_modules/
+
+# OS / editor
+.DS_Store
+*.swp
+Thumbs.db

@@ -1,0 +1,144 @@
+import * as cdk from 'aws-cdk-lib';
+import { Construct } from 'constructs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as ddb from 'aws-cdk-lib/aws-dynamodb';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as path from 'path';
+
+export interface GarminDashboardStackProps extends cdk.StackProps {
+  /** Bedrock model id for the chat box (must have model access enabled). */
+  modelId: string;
+  /** Monthly cost budget in USD; email alert fires at 80%. */
+  budgetLimitUsd: number;
+  /** Email for both the monthly budget alert and the daily-cap SNS alert. */
+  notifyEmail: string;
+  /** Max chat questions per client IP per UTC day. */
+  ipDailyMax: number;
+  /** Max chat questions across ALL users per UTC day (hard spend brake). */
+  globalDailyMax: number;
+}
+
+/**
+ * Garmin fitness dashboard — hosting + rate-limited chat.
+ *
+ * CDK OWNS (infra only):
+ *   - private S3 bucket (site content synced by the local weekly job, NOT this stack)
+ *   - CloudFront distribution (OAC -> the private bucket)
+ *   - chat Lambda (Python) -> Bedrock InvokeModel, with per-IP + global daily caps
+ *   - DynamoDB counter table (per-IP + global daily question counters, TTL-expired)
+ *   - HTTP API (POST /ask), throttled, CORS to the CF domain
+ *   - SNS topic + email sub: fires the instant the GLOBAL daily cap is hit
+ *   - monthly cost budget + email alert (backstop)
+ */
+export class GarminDashboardStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props: GarminDashboardStackProps) {
+    super(scope, id, props);
+
+    // ---- Private site bucket (CloudFront reads via OAC) ----
+    const bucket = new s3.Bucket(this, 'SiteBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    // ---- CloudFront (OAC -> private bucket) ----
+    const distribution = new cloudfront.Distribution(this, 'Distribution', {
+      comment: 'Garmin fitness dashboard',
+      defaultRootObject: 'index.html',
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      },
+      errorResponses: [
+        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html' },
+        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' },
+      ],
+    });
+
+    // ---- Rate-limit counter table (per-IP + global, per UTC day) ----
+    // pk = "ip#<ip>#<yyyy-mm-dd>" or "global#<yyyy-mm-dd>"; rows auto-expire via TTL.
+    const counters = new ddb.Table(this, 'RateCounters', {
+      partitionKey: { name: 'pk', type: ddb.AttributeType.STRING },
+      billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // ---- Alert topic: fires when the GLOBAL daily cap is hit ----
+    const alertTopic = new sns.Topic(this, 'DailyCapAlert', {
+      displayName: 'Garmin dashboard daily cap alert',
+    });
+    alertTopic.addSubscription(new subs.EmailSubscription(props.notifyEmail));
+
+    // ---- Chat Lambda (Bedrock + rate limiting) ----
+    const chatFn = new lambda.Function(this, 'ChatFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'chat')),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        BUCKET_NAME: bucket.bucketName,
+        DATA_KEY: 'data.json',
+        MODEL_ID: props.modelId,
+        COUNTER_TABLE: counters.tableName,
+        IP_DAILY_MAX: String(props.ipDailyMax),
+        GLOBAL_DAILY_MAX: String(props.globalDailyMax),
+        ALERT_TOPIC_ARN: alertTopic.topicArn,
+      },
+    });
+    bucket.grantRead(chatFn);
+    counters.grantReadWriteData(chatFn);
+    alertTopic.grantPublish(chatFn);
+    chatFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'],
+    }));
+
+    // ---- HTTP API (POST /ask), throttled + CORS to the CF domain ----
+    const httpApi = new apigw.HttpApi(this, 'ChatApi', {
+      corsPreflight: {
+        allowOrigins: [`https://${distribution.distributionDomainName}`],
+        allowMethods: [apigw.CorsHttpMethod.POST],
+        allowHeaders: ['content-type'],
+      },
+    });
+    httpApi.addRoutes({
+      path: '/ask',
+      methods: [apigw.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ChatIntegration', chatFn),
+    });
+    const stage = httpApi.defaultStage!.node.defaultChild as apigw.CfnStage;
+    stage.defaultRouteSettings = { throttlingBurstLimit: 5, throttlingRateLimit: 2 };
+
+    // ---- Monthly cost budget + email alert at 80% (backstop) ----
+    new budgets.CfnBudget(this, 'MonthlyBudget', {
+      budget: {
+        budgetType: 'COST',
+        timeUnit: 'MONTHLY',
+        budgetLimit: { amount: props.budgetLimitUsd, unit: 'USD' },
+      },
+      notificationsWithSubscribers: [{
+        notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold: 80 },
+        subscribers: [{ subscriptionType: 'EMAIL', address: props.notifyEmail }],
+      }],
+    });
+
+    // ---- Outputs ----
+    new cdk.CfnOutput(this, 'DashboardUrl', { value: `https://${distribution.distributionDomainName}` });
+    new cdk.CfnOutput(this, 'ChatApiUrl', { value: `${httpApi.apiEndpoint}/ask` });
+    new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
+    new cdk.CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
+  }
+}
