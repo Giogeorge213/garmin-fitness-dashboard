@@ -550,7 +550,10 @@ async function drawMap() {
   if (!data.routes || !data.routes.length) { $("mapNote").textContent = "No route data available."; return; }
 
   const center = data.center || data.routes[0].coords[0];
-  const map = L.map("map").setView(center, 11);   // default SVG renderer (repaints reliably on resize)
+  // Canvas renderer: redraws every feature on each pan/zoom (SVG drops paths
+  // with this many polylines). padding keeps lines drawn past the viewport
+  // edge so they don't clip while panning.
+  const map = L.map("map", { renderer: L.canvas({ padding: 0.5 }) }).setView(center, 11);
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     { maxZoom: 19, subdomains: "abcd", attribution: "\u00a9 OpenStreetMap \u00a9 CARTO" }).addTo(map);
 
