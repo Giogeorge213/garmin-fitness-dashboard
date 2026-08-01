@@ -14,5 +14,10 @@
     "value": "1:29:34",
     "date": "2005-11-13",
     "replaces": "pr_Half"
+  },
+  "5k_pr": {
+    "value": "17:32",
+    "date": "2005-10-22",
+    "replaces": "pr_5K"
   }
 }
