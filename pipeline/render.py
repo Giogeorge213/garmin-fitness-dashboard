@@ -376,7 +376,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   h2{font-size:15px;margin:0 0 12px;color:var(--navy);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
   canvas{max-height:300px}
   .race{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-  .race .n{font-size:20px;font-weight:700;color:var(--accent2)}
+  .race .n{font-size:20px;font-weight:800;color:var(--txt)}
   .race .l{color:var(--muted);font-size:12px}
   .chat{margin-top:24px}
   .chatlog{min-height:60px;max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
