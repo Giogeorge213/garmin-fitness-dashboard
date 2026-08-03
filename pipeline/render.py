@@ -236,8 +236,10 @@ def build_data(activities, health, race_pred):
     if srow:
         records["most_steps"] = {"steps": int(sbest), "date": srow.get("date")}
 
-    # ---- Commentary for the last FULL week of data (Mon-Sun) ------------
+    # ---- Commentary + structured weekly rollups (last FULL week, Mon-Sun) ----
     weekly_commentary = ""
+    last_week = {}
+    recent_weeks = []
     if date_max:
         dmax = datetime.strptime(date_max, "%Y-%m-%d").date()
         # Monday of the week containing the latest activity. If that week isn't
@@ -276,6 +278,36 @@ def build_data(activities, health, race_pred):
             bits.append(f"That is {round(abs(diff))} mi {word} than the week before.")
         weekly_commentary = " ".join(bits)
 
+        # Structured version so the chat can answer weekly hours / breakdown / trend.
+        gwk_hr = defaultdict(float)
+        for a in wk:
+            gwk_hr[group_sport(a.get("sport") or "")] += (fnum(a.get("moving_time_min")) or 0) / 60.0
+        last_week = {
+            "range": rng,
+            "start": week_start.isoformat(),
+            "end": week_end.isoformat(),
+            "activities": len(wk),
+            "hours": round(sum((fnum(a.get("moving_time_min")) or 0) for a in wk) / 60.0, 1),
+            "miles": round(wk_mi, 1),
+            "miles_by_sport": {k: round(v, 1) for k, v in sorted(gwk.items(), key=lambda kv: kv[1], reverse=True) if v > 0},
+            "hours_by_sport": {k: round(v, 1) for k, v in sorted(gwk_hr.items(), key=lambda kv: kv[1], reverse=True) if v > 0},
+            "vs_prior_week_miles": round(wk_mi - pv_mi, 1) if pv else None,
+        }
+
+        # Last 12 complete weeks (hours / miles / count) for trend questions.
+        wkh, wkm, wkc = defaultdict(float), defaultdict(float), defaultdict(int)
+        for a in activities:
+            dd = _pd(a.get("date") or "")
+            if not dd:
+                continue
+            ws = (dd - timedelta(days=dd.weekday())).isoformat()
+            wkh[ws] += (fnum(a.get("moving_time_min")) or 0) / 60.0
+            wkm[ws] += fnum(a.get("distance_mi")) or 0
+            wkc[ws] += 1
+        keys = [k for k in sorted(wkh.keys()) if k <= week_start.isoformat()]
+        recent_weeks = [{"week_start": k, "hours": round(wkh[k], 1),
+                         "miles": round(wkm[k], 1), "activities": wkc[k]} for k in keys[-12:]]
+
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "kpis": {
@@ -299,6 +331,8 @@ def build_data(activities, health, race_pred):
         "monthly_bike": monthly_bike,
         "records": records,
         "weekly_commentary": weekly_commentary,
+        "last_week": last_week,
+        "recent_weeks": recent_weeks,
     }
 
 
@@ -448,33 +482,27 @@ function kpis() {
 }
 
 function charts() {
-  new Chart($("hoursChart"), {
-    type: "bar",
-    data: { labels: DATA.monthly_hours.labels,
-            datasets: [{ data: DATA.monthly_hours.values, backgroundColor: BLUE }] },
-    options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
+  // x labels are "YYYY-MM"; show a 2-digit year tick only at each January.
+  const yearX = () => ({
+    grid: { display: true },
+    ticks: {
+      maxRotation: 0, autoSkip: false, font: { size: 11 },
+      callback: function (v) { return "\u2019" + String(this.getLabelForValue(v)).slice(2, 4); },
+    },
+    afterBuildTicks: function (axis) {
+      const labels = axis.chart.data.labels || [];
+      axis.ticks = axis.ticks.filter(t => String(labels[t.value] || "").slice(5, 7) === "01");
+    },
   });
-
-  new Chart($("stepsChart"), {
+  const bar = (id, series, color) => new Chart($(id), {
     type: "bar",
-    data: { labels: DATA.monthly_steps.labels,
-            datasets: [{ data: DATA.monthly_steps.values, backgroundColor: ORANGE }] },
-    options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
+    data: { labels: series.labels, datasets: [{ data: series.values, backgroundColor: color }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: yearX() } },
   });
-
-  new Chart($("runChart"), {
-    type: "bar",
-    data: { labels: DATA.monthly_run.labels,
-            datasets: [{ data: DATA.monthly_run.values, backgroundColor: GREEN }] },
-    options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
-  });
-
-  new Chart($("bikeChart"), {
-    type: "bar",
-    data: { labels: DATA.monthly_bike.labels,
-            datasets: [{ data: DATA.monthly_bike.values, backgroundColor: TEAL }] },
-    options: { ...noLegend, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
-  });
+  bar("hoursChart", DATA.monthly_hours, BLUE);
+  bar("stepsChart", DATA.monthly_steps, ORANGE);
+  bar("runChart", DATA.monthly_run, GREEN);
+  bar("bikeChart", DATA.monthly_bike, TEAL);
 }
 
 function commentary() {

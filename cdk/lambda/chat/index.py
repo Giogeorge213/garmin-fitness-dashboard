@@ -42,7 +42,11 @@ SYSTEM = (
     "Answer ONLY from the JSON data provided. If the answer isn't in the data, "
     "say you don't have that data. Reply in one or two plain English sentences. "
     "Do NOT output JSON, code blocks, or key-value dumps. Numbers are miles, "
-    "minutes, bpm, hours, and min/mi paces as labeled in the JSON."
+    "minutes, bpm, hours, and min/mi paces as labeled in the JSON. "
+    "The JSON has: kpis (lifetime totals), monthly_hours/steps/run/bike (by-month series), "
+    "records (personal bests), last_week (the most recent COMPLETE week: hours, miles, "
+    "activities, per-sport breakdowns), and recent_weeks (the last several weeks for trends). "
+    "For 'last week' questions use last_week; for trends use recent_weeks or the monthly series."
 )
 
 
