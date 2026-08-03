@@ -436,7 +436,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </section>
 
   <footer>
-    Built with Kiro • data via Garmin Connect • generated __GENERATED__ •
+    Data via Garmin Connect • generated __GENERATED__ •
     <a href="https://github.com/__GH_REPO__">source</a>
   </footer>
 </div>
