@@ -11,6 +11,7 @@ import * as ddb from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as glue from 'aws-cdk-lib/aws-glue';
 import * as path from 'path';
 
 export interface GarminDashboardStackProps extends cdk.StackProps {
@@ -157,6 +158,57 @@ export class GarminDashboardStack extends cdk.Stack {
         subscribers: [{ subscriptionType: 'EMAIL', address: props.notifyEmail }],
       }],
     });
+
+    // ---- Glue: 'garmin' database + activities/wellness tables (Athena) ----
+    // These are EXTERNAL tables over parquet the refresh script uploads to the
+    // analytics bucket. Schemas are pinned (the transforms write fixed dtypes),
+    // so they're declared explicitly rather than crawled.
+    const glueDb = new glue.CfnDatabase(this, 'GarminDb', {
+      catalogId: this.account,
+      databaseInput: { name: 'garmin' },
+    });
+    const parquetTable = (id: string, name: string, prefix: string,
+                          columns: { name: string; type: string }[]) => {
+      const t = new glue.CfnTable(this, id, {
+        catalogId: this.account,
+        databaseName: 'garmin',
+        tableInput: {
+          name,
+          tableType: 'EXTERNAL_TABLE',
+          parameters: { classification: 'parquet', EXTERNAL: 'TRUE' },
+          storageDescriptor: {
+            location: `s3://${ANALYTICS_BUCKET}/${prefix}/`,
+            inputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+            outputFormat: 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+            serdeInfo: { serializationLibrary: 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' },
+            columns,
+          },
+        },
+      });
+      t.addDependency(glueDb);
+      return t;
+    };
+    parquetTable('ActivitiesTable', 'activities', 'garmin/curated', [
+      { name: 'activity_id', type: 'bigint' }, { name: 'name', type: 'string' }, { name: 'sport', type: 'string' },
+      { name: 'start_datetime_local', type: 'string' }, { name: 'date', type: 'string' }, { name: 'year', type: 'bigint' },
+      { name: 'month', type: 'string' }, { name: 'week', type: 'string' }, { name: 'day_of_week', type: 'string' },
+      { name: 'distance_mi', type: 'double' }, { name: 'moving_time_min', type: 'double' }, { name: 'total_time_min', type: 'double' },
+      { name: 'pace_min_per_mi', type: 'double' }, { name: 'avg_speed_mph', type: 'double' }, { name: 'elevation_gain_ft', type: 'double' },
+      { name: 'average_hr', type: 'double' }, { name: 'max_hr', type: 'double' }, { name: 'avg_cadence', type: 'double' },
+      { name: 'calories', type: 'double' }, { name: 'latitude', type: 'double' }, { name: 'longitude', type: 'double' },
+      { name: 'days_since_last_activity', type: 'bigint' },
+    ]);
+    parquetTable('WellnessTable', 'wellness', 'garmin/wellness', [
+      { name: 'date', type: 'string' }, { name: 'steps', type: 'bigint' }, { name: 'distance_km', type: 'double' },
+      { name: 'floors', type: 'double' }, { name: 'moderate_min', type: 'bigint' }, { name: 'vigorous_min', type: 'bigint' },
+      { name: 'total_kcal', type: 'double' }, { name: 'active_kcal', type: 'double' }, { name: 'resting_hr', type: 'bigint' },
+      { name: 'min_hr', type: 'bigint' }, { name: 'max_hr', type: 'bigint' }, { name: 'avg_stress', type: 'bigint' },
+      { name: 'max_stress', type: 'bigint' }, { name: 'body_battery_charged', type: 'bigint' }, { name: 'body_battery_drained', type: 'bigint' },
+      { name: 'sleep_hours', type: 'double' }, { name: 'deep_sleep_hours', type: 'double' }, { name: 'light_sleep_hours', type: 'double' },
+      { name: 'rem_sleep_hours', type: 'double' }, { name: 'awake_hours', type: 'double' }, { name: 'hrv', type: 'bigint' },
+      { name: 'hrv_status', type: 'string' }, { name: 'vo2max', type: 'double' }, { name: 'readiness_score', type: 'bigint' },
+      { name: 'readiness_level', type: 'string' }, { name: 'weight_kg', type: 'double' }, { name: 'hydration_ml', type: 'bigint' },
+    ]);
 
     // ---- Outputs ----
     new cdk.CfnOutput(this, 'DashboardUrl', { value: `https://${distribution.distributionDomainName}` });
