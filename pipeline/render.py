@@ -423,7 +423,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <p id="subtitle"></p>
   </header>
 
-  <h2 style="margin:24px 0 10px">Lifetime</h2>
+  <h2 style="margin:24px 0 10px">Lifetime <span id="lifetimeSince" style="text-transform:none;font-weight:400;color:var(--muted);font-size:13px"></span></h2>
   <section class="grid kpis" id="kpis" style="margin-top:0"></section>
 
   <section class="card c-orange" id="commentaryCard" style="margin-bottom:20px">
@@ -488,9 +488,17 @@ const BLUE = "#2f81f7", GREEN = "#0a7d33", ORANGE = "#ff9900", TEAL = "#0aa3b0",
 const PIE = ["#2f81f7", "#0a7d33", "#ff9900", "#6b3fa0", "#0aa3b0", "#c2478a", "#c0392b", "#b8860b"];
 const noLegend = { maintainAspectRatio: false, plugins: { legend: { display: false } } };
 
+function usDate(iso) {
+  if (!iso) return "";
+  const p = String(iso).slice(0, 10).split("-");
+  return p.length === 3 ? `${p[1]}/${p[2]}/${p[0]}` : iso;
+}
+
 function subtitle() {
   const k = DATA.kpis;
-  $("subtitle").textContent = `${fmt(k.total_activities)} activities \u00b7 ${k.date_min} \u2192 ${k.date_max}`;
+  $("subtitle").textContent = `${fmt(k.total_activities)} activities \u00b7 ${usDate(k.date_min)} \u2192 ${usDate(k.date_max)}`;
+  const since = $("lifetimeSince");
+  if (since && k.date_min) since.textContent = `(since ${usDate(k.date_min)})`;
 }
 
 function kpis() {
