@@ -121,6 +121,7 @@ export class GarminDashboardStack extends cdk.Stack {
         `arn:aws:glue:${this.region}:${this.account}:catalog`,
         `arn:aws:glue:${this.region}:${this.account}:database/garmin`,
         `arn:aws:glue:${this.region}:${this.account}:table/garmin/activities`,
+        `arn:aws:glue:${this.region}:${this.account}:table/garmin/wellness`,
       ],
     }));
     chatFn.addToRolePolicy(new iam.PolicyStatement({

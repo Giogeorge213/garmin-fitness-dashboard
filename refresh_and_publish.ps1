@@ -47,7 +47,8 @@ Write-Host "bucket=$bucket  dist=$dist"
 
 # Existing Athena setup (garmin.activities table -> this S3 location). Not CDK-managed;
 # it predates the stack and lives alongside the user's strava analytics.
-$ATHENA_S3 = "s3://strava-analytics-989567198465/garmin/curated/garmin_activities.parquet"
+$ATHENA_S3   = "s3://strava-analytics-989567198465/garmin/curated/garmin_activities.parquet"
+$WELLNESS_S3 = "s3://strava-analytics-989567198465/garmin/wellness/wellness_daily.parquet"
 
 # --- 1. pull + 2. transform wellness/routes (run from pipeline/, which owns out/) ---
 Push-Location (Join-Path $repo "pipeline")
@@ -62,6 +63,13 @@ try {
   python transform_routes.py --data-dir out/raw --out ../site/routes.json
 }
 finally { Pop-Location }
+
+# upload the wellness parquet so the Athena table (garmin.wellness) stays current
+$wpq = Join-Path $repo "pipeline\out\curated\wellness_daily.parquet"
+if (Test-Path $wpq) {
+  Write-Host "-- upload wellness parquet -> $WELLNESS_S3 --" -ForegroundColor Yellow
+  aws s3 cp $wpq $WELLNESS_S3 --profile $PROFILE_NAME
+}
 
 # --- 1b. activities ingest (garmin-project owns garmin_activities.csv: KPIs/PRs/charts) ---
 $activitiesDir = Join-Path (Split-Path $repo -Parent) "garmin-project"

@@ -68,8 +68,10 @@ refresh_and_publish.ps1      pull -> transform -> render -> sync S3 -> invalidat
 
 ## SQL access (Athena)
 
-Each refresh also writes the activities to Parquet and uploads it to S3, where a
-Glue table (`garmin.activities`) makes it queryable with SQL in Amazon Athena.
+Each refresh writes the activities and the daily wellness data to Parquet and
+uploads them to S3, where two Glue tables (`garmin.activities` per workout and
+`garmin.wellness` per day) make them queryable with SQL in Amazon Athena. The
+chat box uses these tables too.
 
 ```sql
 SELECT sport, count(*) AS activities, round(sum(distance_mi), 1) AS total_mi

@@ -14,6 +14,6 @@ new GarminDashboardStack(app, 'GarminDashboard', {
   modelId: app.node.tryGetContext('modelId') ?? 'amazon.nova-lite-v1:0',
   budgetLimitUsd: Number(app.node.tryGetContext('budgetUsd') ?? 20),
   notifyEmail: app.node.tryGetContext('notifyEmail') ?? app.node.tryGetContext('budgetEmail') ?? 'REPLACE_WITH_YOUR_EMAIL',
-  ipDailyMax: Number(app.node.tryGetContext('ipDailyMax') ?? 10),
+  ipDailyMax: Number(app.node.tryGetContext('ipDailyMax') ?? 25),
   globalDailyMax: Number(app.node.tryGetContext('globalDailyMax') ?? 500),
 });

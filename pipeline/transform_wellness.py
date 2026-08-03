@@ -135,6 +135,32 @@ def main():
             w.writerow(r)
 
     print(f"wrote {len(rows)} days -> {OUT}")
+
+    # Typed parquet for the Athena table garmin.wellness (deterministic schema).
+    try:
+        import pandas as pd
+        df = pd.DataFrame(rows, columns=cols)
+        int_cols = ["steps", "moderate_min", "vigorous_min", "resting_hr", "min_hr", "max_hr",
+                    "avg_stress", "max_stress", "body_battery_charged", "body_battery_drained",
+                    "hrv", "readiness_score", "hydration_ml"]
+        float_cols = ["distance_km", "floors", "total_kcal", "active_kcal", "sleep_hours",
+                      "deep_sleep_hours", "light_sleep_hours", "rem_sleep_hours", "awake_hours",
+                      "vo2max", "weight_kg"]
+        for c in int_cols:
+            if c in df:
+                df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
+        for c in float_cols:
+            if c in df:
+                df[c] = pd.to_numeric(df[c], errors="coerce").astype("float64")
+        for c in ["date", "hrv_status", "readiness_level"]:
+            if c in df:
+                df[c] = df[c].astype("object")
+        pq = OUT.replace(".csv", ".parquet")
+        df.to_parquet(pq, index=False)
+        print(f"wrote {len(rows)} -> {pq}")
+    except Exception as e:  # parquet is a bonus; the CSV is what render.py needs
+        print(f"(skipped parquet: {e})")
+
     for c in cols[1:]:
         n = sum(1 for r in rows if r.get(c) not in (None, ""))
         print(f"  {c}: {n}/{len(rows)}")

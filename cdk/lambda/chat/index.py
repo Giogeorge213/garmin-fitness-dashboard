@@ -46,8 +46,8 @@ CORS = {
 
 SYSTEM = (
     "You are a concise assistant for a personal Garmin fitness dashboard. You have a "
-    "SUMMARY JSON and a SQL tool (query_activities) over the Athena table "
-    f"{ATHENA_DB}.activities.\n"
+    "SUMMARY JSON and a SQL tool (query_garmin) over two Athena tables in the "
+    f"'{ATHENA_DB}' database: activities (one row per workout) and wellness (one row per day).\n"
     "The SUMMARY contains ONLY these fields: kpis (lifetime totals - bike/run distance, "
     "moving hours, total steps, total floors, avg daily steps, avg sleep, latest VO2, "
     "date range); monthly_hours/monthly_steps/monthly_run/monthly_bike (one value per "
@@ -55,18 +55,23 @@ SYSTEM = (
     "ride, most steps, and a manual Ironman); last_week and recent_weeks (weekly hours/"
     "miles/activity counts).\n"
     "Answer directly from the SUMMARY ONLY when the question maps to one of those exact "
-    "fields. For EVERYTHING ELSE - any specific activity, any specific date, month, or "
-    "year, any filter or condition, any count, or any per-activity value (pace, HR, "
-    "elevation, calories, speed) - you MUST call query_activities. Do NOT answer those "
-    "from the summary, and NEVER guess, estimate, or invent a number. If a query returns "
-    "no rows, say you don't have that data.\n"
-    f"Table {ATHENA_DB}.activities columns: activity_id (bigint), name (string), "
-    "sport (string), start_datetime_local (string), date (string 'YYYY-MM-DD'), "
-    "year (bigint), month (string 'YYYY-MM'), week (string), day_of_week (string), "
-    "distance_mi, moving_time_min, total_time_min, pace_min_per_mi, avg_speed_mph, "
-    "elevation_gain_ft, average_hr, max_hr, avg_cadence, calories, latitude, longitude "
-    "(all double), days_since_last_activity (bigint).\n"
-    "sport values include running, cycling, lap_swimming, treadmill_running, "
+    "fields. For EVERYTHING ELSE - any specific workout or day, any specific date, month, "
+    "or year, any filter or condition, any count, or any per-row value - you MUST call "
+    "query_garmin. Do NOT answer those from the summary, and NEVER guess, estimate, or "
+    "invent a number. If a query returns no rows, say you don't have that data.\n"
+    f"{ATHENA_DB}.activities columns: activity_id (bigint), name (string), sport (string), "
+    "start_datetime_local (string), date (string 'YYYY-MM-DD'), year (bigint), month "
+    "(string 'YYYY-MM'), week (string), day_of_week (string), distance_mi, moving_time_min, "
+    "total_time_min, pace_min_per_mi, avg_speed_mph, elevation_gain_ft, average_hr, max_hr, "
+    "avg_cadence, calories, latitude, longitude (all double), days_since_last_activity (bigint).\n"
+    f"{ATHENA_DB}.wellness columns (one row per day): date (string 'YYYY-MM-DD'), steps (bigint), "
+    "distance_km, floors, moderate_min, vigorous_min, total_kcal, active_kcal, resting_hr, min_hr, "
+    "max_hr, avg_stress, max_stress, body_battery_charged, body_battery_drained, sleep_hours, "
+    "deep_sleep_hours, light_sleep_hours, rem_sleep_hours, awake_hours, hrv, hrv_status (string), "
+    "vo2max, readiness_score, readiness_level (string), weight_kg, hydration_ml. "
+    "Use wellness for sleep, steps, heart rate, stress, HRV, body battery, VO2, weight, and "
+    "hydration questions; use activities for workouts.\n"
+    "activities.sport values include running, cycling, lap_swimming, treadmill_running, "
     "indoor_cycling, hiking, walking, stair_climbing, indoor_rowing, road_biking, "
     "open_water_swimming, yoga, elliptical. Use the year column for a given year; "
     "for running totals include running, treadmill_running, trail_running, indoor_running.\n"
@@ -77,10 +82,11 @@ SYSTEM = (
 TOOL_CONFIG = {
     "tools": [{
         "toolSpec": {
-            "name": "query_activities",
+            "name": "query_garmin",
             "description": (
-                "Run a read-only Athena SQL SELECT over the garmin.activities table to "
-                "answer questions the summary can't. Returns result rows as text."
+                "Run a read-only Athena SQL SELECT over the garmin database "
+                "(tables: activities, wellness) to answer questions the summary can't. "
+                "Returns result rows as text."
             ),
             "inputSchema": {"json": {
                 "type": "object",
@@ -88,8 +94,9 @@ TOOL_CONFIG = {
                     "sql": {
                         "type": "string",
                         "description": ("A single Athena/Presto SELECT over "
-                                        f"{ATHENA_DB}.activities. No DDL/DML, no semicolons. "
-                                        "Keep results small (aggregate or LIMIT <= 50)."),
+                                        f"{ATHENA_DB}.activities or {ATHENA_DB}.wellness. "
+                                        "No DDL/DML, no semicolons. Keep results small "
+                                        "(aggregate or LIMIT <= 50)."),
                     }
                 },
                 "required": ["sql"],
