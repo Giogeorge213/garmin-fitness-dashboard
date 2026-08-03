@@ -19,9 +19,9 @@
       the pull step will fail/prompt -- run the pull once interactively to re-auth,
       then scheduled runs work again.
 
-  NOTE: activities / race predictions / tri splits are read by render.py from the
-  OLDER ingest at ../garmin-project/out. This script refreshes WELLNESS + ROUTES and
-  republishes. To also refresh activities weekly, add the garmin-project ingest step.
+  Refreshes ACTIVITIES (KPIs/PRs/charts, from ../garmin-project), WELLNESS, and
+  ROUTES (map), then rebuilds and republishes. Manual PRs in
+  pipeline/manual_records.json (Ironman, pre-Garmin bests) are preserved.
 
   Usage:   powershell -ExecutionPolicy Bypass -File refresh_and_publish.ps1
 #>
@@ -45,7 +45,7 @@ $api    = Get-Output "ChatApiUrl"
 if (-not $bucket -or $bucket -eq "None") { throw "Could not read BucketName from stack $STACK" }
 Write-Host "bucket=$bucket  dist=$dist"
 
-# --- 1. pull + 2. transform (run from pipeline/, which owns out/) ---
+# --- 1. pull + 2. transform wellness/routes (run from pipeline/, which owns out/) ---
 Push-Location (Join-Path $repo "pipeline")
 try {
   Write-Host "-- pull activity details --" -ForegroundColor Yellow
@@ -58,6 +58,21 @@ try {
   python transform_routes.py --data-dir out/raw --out ../site/routes.json
 }
 finally { Pop-Location }
+
+# --- 1b. activities ingest (garmin-project owns garmin_activities.csv: KPIs/PRs/charts) ---
+$activitiesDir = Join-Path (Split-Path $repo -Parent) "garmin-project"
+if (Test-Path (Join-Path $activitiesDir "garmin_ingest.py")) {
+  Push-Location $activitiesDir
+  try {
+    Write-Host "-- ingest activities --" -ForegroundColor Yellow
+    python garmin_ingest.py
+    Write-Host "-- transform activities --" -ForegroundColor Yellow
+    python garmin_transform.py
+  }
+  finally { Pop-Location }
+} else {
+  Write-Host "!! garmin-project not found at $activitiesDir -- skipping activities refresh (KPIs/PRs won't update)" -ForegroundColor Red
+}
 
 # --- 3. render (from repo root; activities from ../garmin-project/out, health from pipeline curated) ---
 Write-Host "-- render site --" -ForegroundColor Yellow
