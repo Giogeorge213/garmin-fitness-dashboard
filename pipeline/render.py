@@ -469,12 +469,12 @@ function subtitle() {
 function kpis() {
   const k = DATA.kpis;
   const tiles = [
-    ["Biking distance", fmt(k.bike_distance_mi) + " mi", ""],
-    ["Running distance", fmt(k.run_distance_mi) + " mi", ""],
+    ["Biking distance", fmt(k.bike_distance_mi) + " mi", "lifetime"],
+    ["Running distance", fmt(k.run_distance_mi) + " mi", "lifetime"],
     ["Moving time", fmt(k.total_move_hours) + " h", "all sports"],
     ["Total steps", fmt(k.total_steps), "lifetime"],
     ["Total floors", fmt(k.total_floors), "lifetime"],
-    ["Avg sleep", (k.avg_sleep_hours ?? "\u2013") + " h", ""],
+    ["Avg sleep", (k.avg_sleep_hours ?? "\u2013") + " h", "lifetime"],
   ];
   $("kpis").innerHTML = tiles.map(([l, n, s]) =>
     `<div class="card kpi"><div class="l">${l}</div><div class="n">${n}</div><div class="s">${s}</div></div>`
