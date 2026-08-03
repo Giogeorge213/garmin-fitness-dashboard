@@ -1,19 +1,23 @@
 """
-Garmin dashboard chat handler with abuse guards.
+Garmin dashboard chat handler.
 
 POST /ask  {"question": "..."} -> {"answer": "..."}
+
+The model answers quick facts from the dashboard summary (data.json) and, for
+anything the summary doesn't cover, calls a read-only SQL tool over the Athena
+table garmin.activities (via Bedrock Converse tool use).
 
 Rate limits (per UTC day, atomic counters in DynamoDB):
   - per client IP:  IP_DAILY_MAX questions/day  -> 429 when exceeded
   - global (all users): GLOBAL_DAILY_MAX/day     -> 429 when exceeded (hard spend brake)
-When the GLOBAL cap is first hit, publishes one SNS alert ("maxed out today").
-
-Answers come from Bedrock using the dashboard's data.json as the only context.
+When the GLOBAL cap is first hit, publishes one SNS alert.
 """
 import base64
 import datetime
 import json
 import os
+import re
+import time
 
 import boto3
 
@@ -24,11 +28,14 @@ TABLE = os.environ["COUNTER_TABLE"]
 IP_DAILY_MAX = int(os.environ.get("IP_DAILY_MAX", "10"))
 GLOBAL_DAILY_MAX = int(os.environ.get("GLOBAL_DAILY_MAX", "500"))
 ALERT_TOPIC_ARN = os.environ.get("ALERT_TOPIC_ARN", "")
+ATHENA_DB = os.environ.get("ATHENA_DB", "garmin")
+ATHENA_OUTPUT = os.environ.get("ATHENA_OUTPUT", "")
 
 s3 = boto3.client("s3")
 bedrock = boto3.client("bedrock-runtime")
 dynamodb = boto3.client("dynamodb")
 sns = boto3.client("sns")
+athena = boto3.client("athena")
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -38,16 +45,61 @@ CORS = {
 }
 
 SYSTEM = (
-    "You are a concise assistant for a personal Garmin fitness dashboard. "
-    "Answer ONLY from the JSON data provided. If the answer isn't in the data, "
-    "say you don't have that data. Reply in one or two plain English sentences. "
-    "Do NOT output JSON, code blocks, or key-value dumps. Numbers are miles, "
-    "minutes, bpm, hours, and min/mi paces as labeled in the JSON. "
-    "The JSON has: kpis (lifetime totals), monthly_hours/steps/run/bike (by-month series), "
-    "records (personal bests), last_week (the most recent COMPLETE week: hours, miles, "
-    "activities, per-sport breakdowns), and recent_weeks (the last several weeks for trends). "
-    "For 'last week' questions use last_week; for trends use recent_weeks or the monthly series."
+    "You are a concise assistant for a personal Garmin fitness dashboard. You have a "
+    "SUMMARY JSON and a SQL tool (query_activities) over the Athena table "
+    f"{ATHENA_DB}.activities.\n"
+    "The SUMMARY contains ONLY these fields: kpis (lifetime totals - bike/run distance, "
+    "moving hours, total steps, total floors, avg daily steps, avg sleep, latest VO2, "
+    "date range); monthly_hours/monthly_steps/monthly_run/monthly_bike (one value per "
+    "month); records (all-time PRs: fastest 5K/10K/half/marathon, longest run, longest "
+    "ride, most steps, and a manual Ironman); last_week and recent_weeks (weekly hours/"
+    "miles/activity counts).\n"
+    "Answer directly from the SUMMARY ONLY when the question maps to one of those exact "
+    "fields. For EVERYTHING ELSE - any specific activity, any specific date, month, or "
+    "year, any filter or condition, any count, or any per-activity value (pace, HR, "
+    "elevation, calories, speed) - you MUST call query_activities. Do NOT answer those "
+    "from the summary, and NEVER guess, estimate, or invent a number. If a query returns "
+    "no rows, say you don't have that data.\n"
+    f"Table {ATHENA_DB}.activities columns: activity_id (bigint), name (string), "
+    "sport (string), start_datetime_local (string), date (string 'YYYY-MM-DD'), "
+    "year (bigint), month (string 'YYYY-MM'), week (string), day_of_week (string), "
+    "distance_mi, moving_time_min, total_time_min, pace_min_per_mi, avg_speed_mph, "
+    "elevation_gain_ft, average_hr, max_hr, avg_cadence, calories, latitude, longitude "
+    "(all double), days_since_last_activity (bigint).\n"
+    "sport values include running, cycling, lap_swimming, treadmill_running, "
+    "indoor_cycling, hiking, walking, stair_climbing, indoor_rowing, road_biking, "
+    "open_water_swimming, yoga, elliptical. Use the year column for a given year; "
+    "for running totals include running, treadmill_running, trail_running, indoor_running.\n"
+    "Reply in one or two plain English sentences. Never show SQL, raw JSON, or any "
+    "<thinking> notes to the user. Distances are miles, times minutes/hours, paces min/mi."
 )
+
+TOOL_CONFIG = {
+    "tools": [{
+        "toolSpec": {
+            "name": "query_activities",
+            "description": (
+                "Run a read-only Athena SQL SELECT over the garmin.activities table to "
+                "answer questions the summary can't. Returns result rows as text."
+            ),
+            "inputSchema": {"json": {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": ("A single Athena/Presto SELECT over "
+                                        f"{ATHENA_DB}.activities. No DDL/DML, no semicolons. "
+                                        "Keep results small (aggregate or LIMIT <= 50)."),
+                    }
+                },
+                "required": ["sql"],
+            }},
+        }
+    }]
+}
+
+BANNED = ["insert", "update", "delete", "drop", "create", "alter", "grant",
+          "revoke", "truncate", "merge", "call", "msck", "load", "describe", "show"]
 
 
 def _resp(status, obj):
@@ -65,19 +117,91 @@ def _body(event):
 
 
 def _bump(pk, ttl_epoch):
-    """Atomically +1 the counter at pk; returns the new value."""
     r = dynamodb.update_item(
         TableName=TABLE,
         Key={"pk": {"S": pk}},
         UpdateExpression="ADD #c :one SET #t = if_not_exists(#t, :ttl)",
         ExpressionAttributeNames={"#c": "count", "#t": "ttl"},
-        ExpressionAttributeValues={
-            ":one": {"N": "1"},
-            ":ttl": {"N": str(ttl_epoch)},
-        },
+        ExpressionAttributeValues={":one": {"N": "1"}, ":ttl": {"N": str(ttl_epoch)}},
         ReturnValues="UPDATED_NEW",
     )
     return int(r["Attributes"]["count"]["N"])
+
+
+def _sql_is_safe(sql):
+    s = (sql or "").strip().rstrip(";")
+    if not s or ";" in s:
+        return False
+    low = s.lower()
+    if not (low.startswith("select") or low.startswith("with")):
+        return False
+    return not any(re.search(r"\b" + b + r"\b", low) for b in BANNED)
+
+
+def _clean(text):
+    text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.S | re.I)
+    text = re.sub(r"</?thinking>", "", text, flags=re.I)
+    return text.strip()
+
+
+def _run_athena(sql):
+    qid = athena.start_query_execution(
+        QueryString=sql,
+        QueryExecutionContext={"Database": ATHENA_DB},
+        ResultConfiguration={"OutputLocation": ATHENA_OUTPUT},
+    )["QueryExecutionId"]
+    state = "RUNNING"
+    for _ in range(22):  # ~15s cap; queries on this tiny table finish in ~1-3s
+        info = athena.get_query_execution(QueryExecutionId=qid)["QueryExecution"]["Status"]
+        state = info["State"]
+        if state in ("SUCCEEDED", "FAILED", "CANCELLED"):
+            break
+        time.sleep(0.7)
+    if state != "SUCCEEDED":
+        reason = info.get("StateChangeReason", "")
+        return f"ERROR: query {state}. {reason}"[:800]
+    res = athena.get_query_results(QueryExecutionId=qid, MaxResults=51)
+    out = []
+    for row in res["ResultSet"]["Rows"]:
+        out.append(" | ".join(c.get("VarCharValue", "") for c in row["Data"]))
+    return "\n".join(out) if out else "(no rows)"
+
+
+def _answer(question, data_json):
+    messages = [{"role": "user", "content": [
+        {"text": f"Summary data:\n{data_json}\n\nQuestion: {question}"}]}]
+    for _ in range(3):  # at most one tool round in practice
+        resp = bedrock.converse(
+            modelId=MODEL_ID,
+            system=[{"text": SYSTEM}],
+            messages=messages,
+            toolConfig=TOOL_CONFIG,
+            inferenceConfig={"maxTokens": 600, "temperature": 0},
+        )
+        msg = resp["output"]["message"]
+        messages.append(msg)
+        if resp.get("stopReason") == "tool_use":
+            tool_results = []
+            for block in msg["content"]:
+                tu = block.get("toolUse")
+                if not tu:
+                    continue
+                sql = (tu.get("input") or {}).get("sql", "")
+                if not _sql_is_safe(sql):
+                    text = "ERROR: only a single read-only SELECT is allowed."
+                else:
+                    try:
+                        text = _run_athena(sql)
+                    except Exception as e:  # noqa: BLE001
+                        text = f"ERROR: {e}"
+                tool_results.append({"toolResult": {
+                    "toolUseId": tu["toolUseId"],
+                    "content": [{"text": text[:6000]}],
+                }})
+            messages.append({"role": "user", "content": tool_results})
+            continue
+        return _clean("".join(b.get("text", "") for b in msg["content"])) or "No answer returned."
+    return "I couldn't work that out from the data."
 
 
 def handler(event, context):
@@ -91,20 +215,18 @@ def handler(event, context):
 
     ip = http.get("sourceIp", "unknown")
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    ttl_epoch = int(datetime.datetime.utcnow().timestamp()) + 2 * 86400  # rows self-clean
+    ttl_epoch = int(datetime.datetime.utcnow().timestamp()) + 2 * 86400
 
-    # --- per-IP cap (don't touch the global budget if this IP is already over) ---
     try:
         ip_count = _bump(f"ip#{ip}#{today}", ttl_epoch)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return _resp(500, {"message": f"rate-limit check failed: {e}"})
     if ip_count > IP_DAILY_MAX:
         return _resp(429, {"message": f"Daily limit reached ({IP_DAILY_MAX} questions per day). Try again tomorrow."})
 
-    # --- global cap (hard spend brake) + one-shot alert when first hit ---
     try:
         g_count = _bump(f"global#{today}", ttl_epoch)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return _resp(500, {"message": f"rate-limit check failed: {e}"})
     if g_count == GLOBAL_DAILY_MAX + 1 and ALERT_TOPIC_ARN:
         try:
@@ -112,31 +234,19 @@ def handler(event, context):
                 TopicArn=ALERT_TOPIC_ARN,
                 Subject="Garmin dashboard: daily question cap reached",
                 Message=(f"The dashboard hit its global daily cap of {GLOBAL_DAILY_MAX} "
-                         f"questions on {today} (UTC). Further questions are blocked until "
-                         f"tomorrow. If this is unexpected, someone may be hammering /ask."),
+                         f"questions on {today} (UTC)."),
             )
-        except Exception:
-            pass  # never fail a request because the alert didn't send
+        except Exception:  # noqa: BLE001
+            pass
     if g_count > GLOBAL_DAILY_MAX:
         return _resp(429, {"message": "The dashboard has reached its daily question limit. Try again tomorrow."})
 
-    # --- answer from Bedrock ---
     try:
         data_json = s3.get_object(Bucket=BUCKET, Key=DATA_KEY)["Body"].read().decode("utf-8")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return _resp(500, {"message": f"Could not load dashboard data: {e}"})
 
-    prompt = f"Here is my fitness dashboard data as JSON:\n\n{data_json}\n\nQuestion: {question}"
     try:
-        # Converse API: model-agnostic (works with Nova, Anthropic, etc.).
-        resp = bedrock.converse(
-            modelId=MODEL_ID,
-            system=[{"text": SYSTEM}],
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 500, "temperature": 0.2},
-        )
-        blocks = resp.get("output", {}).get("message", {}).get("content", [])
-        answer = "".join(b.get("text", "") for b in blocks).strip() or "No answer returned."
-        return _resp(200, {"answer": answer})
-    except Exception as e:
+        return _resp(200, {"answer": _answer(question, data_json)})
+    except Exception as e:  # noqa: BLE001
         return _resp(502, {"message": f"Model call failed: {e}"})

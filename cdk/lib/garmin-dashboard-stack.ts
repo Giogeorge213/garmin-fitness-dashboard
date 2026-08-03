@@ -96,6 +96,8 @@ export class GarminDashboardStack extends cdk.Stack {
         IP_DAILY_MAX: String(props.ipDailyMax),
         GLOBAL_DAILY_MAX: String(props.globalDailyMax),
         ALERT_TOPIC_ARN: alertTopic.topicArn,
+        ATHENA_DB: 'garmin',
+        ATHENA_OUTPUT: 's3://strava-analytics-989567198465/athena-results/',
       },
     });
     bucket.grantRead(chatFn);
@@ -104,6 +106,26 @@ export class GarminDashboardStack extends cdk.Stack {
     chatFn.addToRolePolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: ['*'],
+    }));
+
+    // Read-only SQL tool over the garmin.activities Athena table.
+    const ANALYTICS_BUCKET = 'strava-analytics-989567198465';
+    chatFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['athena:StartQueryExecution', 'athena:GetQueryExecution',
+                'athena:GetQueryResults', 'athena:StopQueryExecution'],
+      resources: [`arn:aws:athena:${this.region}:${this.account}:workgroup/primary`],
+    }));
+    chatFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['glue:GetTable', 'glue:GetDatabase', 'glue:GetPartitions'],
+      resources: [
+        `arn:aws:glue:${this.region}:${this.account}:catalog`,
+        `arn:aws:glue:${this.region}:${this.account}:database/garmin`,
+        `arn:aws:glue:${this.region}:${this.account}:table/garmin/activities`,
+      ],
+    }));
+    chatFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:GetBucketLocation', 's3:ListBucket', 's3:PutObject'],
+      resources: [`arn:aws:s3:::${ANALYTICS_BUCKET}`, `arn:aws:s3:::${ANALYTICS_BUCKET}/*`],
     }));
 
     // ---- HTTP API (POST /ask), throttled + CORS to the CF domain ----

@@ -18,7 +18,7 @@ See it live at **https://dmcikdazkoyo2.cloudfront.net**.
 - **Trends by month**: training hours, average daily steps, miles run, miles biked.
 - **Personal records**: fastest 5K, 10K, half, and full marathon, longest run and ride, most steps in a day, and a full Ironman finish with splits. Real bests are entered by hand where they predate Garmin.
 - **Where I've trained**: every GPS activity plotted worldwide, color-coded by sport.
-- **Ask the data**: a chat box backed by Amazon Bedrock that answers questions like "what was my biggest training month?" using only the dashboard's data.
+- **Ask the data**: a chat box backed by Amazon Bedrock. It answers quick facts from a summary and, for anything specific (a given year, a filtered count, per-activity pace/HR/calories), writes a read-only SQL query against the Athena table and answers from the results. It won't guess numbers it can't look up.
 
 ## Architecture
 
