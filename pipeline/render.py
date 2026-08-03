@@ -399,7 +399,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <p id="subtitle"></p>
   </header>
 
-  <section class="grid kpis" id="kpis"></section>
+  <h2 style="margin:24px 0 10px">Lifetime</h2>
+  <section class="grid kpis" id="kpis" style="margin-top:0"></section>
 
   <section class="card c-orange" id="commentaryCard" style="margin-bottom:20px">
     <h2>Last Full Week</h2>
@@ -469,12 +470,12 @@ function subtitle() {
 function kpis() {
   const k = DATA.kpis;
   const tiles = [
-    ["Biking distance", fmt(k.bike_distance_mi) + " mi", "lifetime"],
-    ["Running distance", fmt(k.run_distance_mi) + " mi", "lifetime"],
+    ["Biking distance", fmt(k.bike_distance_mi) + " mi", ""],
+    ["Running distance", fmt(k.run_distance_mi) + " mi", ""],
     ["Moving time", fmt(k.total_move_hours) + " h", "all sports"],
-    ["Total steps", fmt(k.total_steps), "lifetime"],
-    ["Total floors", fmt(k.total_floors), "lifetime"],
-    ["Avg sleep", (k.avg_sleep_hours ?? "\u2013") + " h", "lifetime"],
+    ["Total steps", fmt(k.total_steps), ""],
+    ["Total floors", fmt(k.total_floors), ""],
+    ["Avg sleep", (k.avg_sleep_hours ?? "\u2013") + " h", ""],
   ];
   $("kpis").innerHTML = tiles.map(([l, n, s]) =>
     `<div class="card kpi"><div class="l">${l}</div><div class="n">${n}</div><div class="s">${s}</div></div>`
