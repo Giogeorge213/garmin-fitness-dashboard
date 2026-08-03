@@ -712,7 +712,7 @@ def main():
                     help="optional JSON of manually-entered records (e.g. Ironman finish time)")
     ap.add_argument("--out-dir", default="./site")
     ap.add_argument("--chat-api-url", default="")
-    ap.add_argument("--gh-repo", default="giorgram/garmin-fitness-dashboard")
+    ap.add_argument("--gh-repo", default="Giogeorge213/garmin-fitness-dashboard")
     ap.add_argument("--robots", default="noindex", help="'noindex' (default) or 'index'")
     args = ap.parse_args()
 
