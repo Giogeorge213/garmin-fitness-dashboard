@@ -510,7 +510,6 @@ function kpis() {
     ["Total steps", fmt(k.total_steps), ""],
     ["Total floors", fmt(k.total_floors), ""],
     ["Calories burned", fmt(k.total_calories), "in workouts"],
-    ["Avg sleep", (k.avg_sleep_hours ?? "\u2013") + " h", ""],
   ];
   $("kpis").innerHTML = tiles.map(([l, n, s]) =>
     `<div class="card kpi"><div class="l">${l}</div><div class="n">${n}</div><div class="s">${s}</div></div>`
