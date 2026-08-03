@@ -87,6 +87,7 @@ def build_data(activities, health, race_pred):
     total_activities = len(activities)
     total_distance = sum(fnum(a.get("distance_mi")) or 0 for a in activities)
     total_move_min = sum(fnum(a.get("moving_time_min")) or 0 for a in activities)
+    total_calories = sum(fnum(a.get("calories")) or 0 for a in activities)
     dates = sorted(a.get("date") for a in activities if a.get("date"))
     date_min = dates[0] if dates else None
     date_max = dates[-1] if dates else None
@@ -344,6 +345,7 @@ def build_data(activities, health, race_pred):
             "run_distance_mi": round(group_dist.get("Running", 0), 1),
             "total_steps": total_steps,
             "total_floors": total_floors,
+            "total_calories": int(round(total_calories)),
         },
         "monthly_hours": monthly_hours,
         "monthly_steps": monthly_steps,
@@ -499,6 +501,7 @@ function kpis() {
     ["Moving time", fmt(k.total_move_hours) + " h", "all sports"],
     ["Total steps", fmt(k.total_steps), ""],
     ["Total floors", fmt(k.total_floors), ""],
+    ["Calories burned", fmt(k.total_calories), "in workouts"],
     ["Avg sleep", (k.avg_sleep_hours ?? "\u2013") + " h", ""],
   ];
   $("kpis").innerHTML = tiles.map(([l, n, s]) =>
