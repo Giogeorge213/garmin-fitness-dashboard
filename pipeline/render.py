@@ -482,22 +482,18 @@ function kpis() {
 }
 
 function charts() {
-  // x labels are "YYYY-MM"; show a 2-digit year tick only at each January.
-  const yearX = () => ({
+  // x labels are "YYYY-MM"; show compact MM/YY ticks, auto-skipping to fit.
+  const monthX = () => ({
     grid: { display: true },
     ticks: {
-      maxRotation: 0, autoSkip: false, font: { size: 11 },
-      callback: function (v) { return "\u2019" + String(this.getLabelForValue(v)).slice(2, 4); },
-    },
-    afterBuildTicks: function (axis) {
-      const labels = axis.chart.data.labels || [];
-      axis.ticks = axis.ticks.filter(t => String(labels[t.value] || "").slice(5, 7) === "01");
+      maxRotation: 0, autoSkip: true, maxTicksLimit: 16, font: { size: 10 },
+      callback: function (v) { const l = String(this.getLabelForValue(v)); return l.slice(5, 7) + "/" + l.slice(2, 4); },
     },
   });
   const bar = (id, series, color) => new Chart($(id), {
     type: "bar",
     data: { labels: series.labels, datasets: [{ data: series.values, backgroundColor: color }] },
-    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: yearX() } },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: monthX() } },
   });
   bar("hoursChart", DATA.monthly_hours, BLUE);
   bar("stepsChart", DATA.monthly_steps, ORANGE);
