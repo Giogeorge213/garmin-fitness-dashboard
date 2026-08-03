@@ -145,6 +145,26 @@ def build_data(activities, health, race_pred):
         return {"labels": ms, "values": [round(tot[m] / n[m], rnd) for m in ms]}
 
     monthly_steps = monthly_avg("steps", 0)
+    monthly_sleep = monthly_avg("sleep_hours", 2)
+
+    # Monthly resting + max HR (two aligned lines).
+    hr_tot = {"resting_hr": defaultdict(float), "max_hr": defaultdict(float)}
+    hr_n = {"resting_hr": defaultdict(int), "max_hr": defaultdict(int)}
+    for r in health:
+        m = (r.get("date") or "")[:7]
+        if not m:
+            continue
+        for c in ("resting_hr", "max_hr"):
+            v = fnum(r.get(c))
+            if v is not None:
+                hr_tot[c][m] += v
+                hr_n[c][m] += 1
+    hr_months = sorted(set(hr_n["resting_hr"]) | set(hr_n["max_hr"]))
+    monthly_hr = {
+        "labels": hr_months,
+        "resting_hr": [round(hr_tot["resting_hr"][m] / hr_n["resting_hr"][m]) if hr_n["resting_hr"][m] else None for m in hr_months],
+        "max_hr": [round(hr_tot["max_hr"][m] / hr_n["max_hr"][m]) if hr_n["max_hr"][m] else None for m in hr_months],
+    }
 
     # ---- VO2 max time series --------------------------------------------
     vo2 = {"labels": [], "values": []}
@@ -329,6 +349,8 @@ def build_data(activities, health, race_pred):
         "monthly_steps": monthly_steps,
         "monthly_run": monthly_run,
         "monthly_bike": monthly_bike,
+        "monthly_sleep": monthly_sleep,
+        "monthly_hr": monthly_hr,
         "records": records,
         "weekly_commentary": weekly_commentary,
         "last_week": last_week,
@@ -412,6 +434,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="card c-orange"><h2>Avg Daily Steps by Month</h2><canvas id="stepsChart"></canvas></div>
     <div class="card c-green"><h2>Miles Run by Month</h2><canvas id="runChart"></canvas></div>
     <div class="card c-teal"><h2>Miles Biked by Month</h2><canvas id="bikeChart"></canvas></div>
+    <div class="card c-purple"><h2>Avg Sleep by Month (h)</h2><canvas id="sleepChart"></canvas></div>
+    <div class="card c-red"><h2>Resting &amp; Max HR by Month</h2><canvas id="hrChart"></canvas></div>
   </section>
 
   <section class="card c-pink" style="margin-top:20px" id="mapCard">
@@ -500,6 +524,22 @@ function charts() {
   bar("stepsChart", DATA.monthly_steps, ORANGE);
   bar("runChart", DATA.monthly_run, GREEN);
   bar("bikeChart", DATA.monthly_bike, TEAL);
+
+  new Chart($("sleepChart"), {
+    type: "line",
+    data: { labels: DATA.monthly_sleep.labels,
+            datasets: [{ data: DATA.monthly_sleep.values, borderColor: PURPLE, backgroundColor: "transparent", tension: .3, pointRadius: 0 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: monthX() } },
+  });
+
+  new Chart($("hrChart"), {
+    type: "line",
+    data: { labels: DATA.monthly_hr.labels, datasets: [
+      { label: "Resting HR", data: DATA.monthly_hr.resting_hr, borderColor: "#2f81f7", backgroundColor: "transparent", tension: .3, pointRadius: 0, spanGaps: true },
+      { label: "Max HR", data: DATA.monthly_hr.max_hr, borderColor: "#c0392b", backgroundColor: "transparent", tension: .3, pointRadius: 0, spanGaps: true },
+    ] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: true, position: "top", labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { x: monthX() } },
+  });
 }
 
 function commentary() {
