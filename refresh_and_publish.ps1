@@ -45,6 +45,10 @@ $api    = Get-Output "ChatApiUrl"
 if (-not $bucket -or $bucket -eq "None") { throw "Could not read BucketName from stack $STACK" }
 Write-Host "bucket=$bucket  dist=$dist"
 
+# Existing Athena setup (garmin.activities table -> this S3 location). Not CDK-managed;
+# it predates the stack and lives alongside the user's strava analytics.
+$ATHENA_S3 = "s3://strava-analytics-989567198465/garmin/curated/garmin_activities.parquet"
+
 # --- 1. pull + 2. transform wellness/routes (run from pipeline/, which owns out/) ---
 Push-Location (Join-Path $repo "pipeline")
 try {
@@ -70,6 +74,13 @@ if (Test-Path (Join-Path $activitiesDir "garmin_ingest.py")) {
     python garmin_transform.py
   }
   finally { Pop-Location }
+
+  # upload the activities parquet so the Athena table (garmin.activities) stays current
+  $pq = Join-Path $activitiesDir "out\garmin_activities.parquet"
+  if (Test-Path $pq) {
+    Write-Host "-- upload activities parquet -> $ATHENA_S3 --" -ForegroundColor Yellow
+    aws s3 cp $pq $ATHENA_S3 --profile $PROFILE_NAME
+  }
 } else {
   Write-Host "!! garmin-project not found at $activitiesDir -- skipping activities refresh (KPIs/PRs won't update)" -ForegroundColor Red
 }

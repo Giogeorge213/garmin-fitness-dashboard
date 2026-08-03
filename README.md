@@ -66,6 +66,18 @@ cdk/                         the AWS stack (S3, CloudFront, chat Lambda, API, Dy
 refresh_and_publish.ps1      pull -> transform -> render -> sync S3 -> invalidate CloudFront
 ```
 
+## SQL access (Athena)
+
+Each refresh also writes the activities to Parquet and uploads it to S3, where a
+Glue table (`garmin.activities`) makes it queryable with SQL in Amazon Athena.
+
+```sql
+SELECT sport, count(*) AS activities, round(sum(distance_mi), 1) AS total_mi
+FROM garmin.activities
+GROUP BY sport
+ORDER BY activities DESC;
+```
+
 ## Privacy
 
 No personal health or GPS data is committed. `.gitignore` excludes `pipeline/out/`, the generated `site/` (the renderer inlines data into `index.html`), route GPS, and Garmin tokens. Map coordinates are rounded so a home address is not resolvable. The live dashboard reads its data from S3, not from git.
