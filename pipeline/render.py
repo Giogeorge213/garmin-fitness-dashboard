@@ -515,10 +515,18 @@ function charts() {
       callback: function (v) { const l = String(this.getLabelForValue(v)); return l.slice(5, 7) + "/" + l.slice(2, 4); },
     },
   });
+  // Shared options: tooltip shows on hover anywhere in a month's column
+  // (index mode), full YYYY-MM in the tooltip title, values for all lines.
+  const opts = (legend) => ({
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: legend, tooltip: { mode: "index", intersect: false } },
+    scales: { x: monthX() },
+  });
   const bar = (id, series, color) => new Chart($(id), {
     type: "bar",
     data: { labels: series.labels, datasets: [{ data: series.values, backgroundColor: color }] },
-    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: monthX() } },
+    options: opts({ display: false }),
   });
   bar("hoursChart", DATA.monthly_hours, BLUE);
   bar("stepsChart", DATA.monthly_steps, ORANGE);
@@ -528,17 +536,17 @@ function charts() {
   new Chart($("sleepChart"), {
     type: "line",
     data: { labels: DATA.monthly_sleep.labels,
-            datasets: [{ data: DATA.monthly_sleep.values, borderColor: PURPLE, backgroundColor: "transparent", tension: .3, pointRadius: 0 }] },
-    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: monthX() } },
+            datasets: [{ data: DATA.monthly_sleep.values, borderColor: PURPLE, backgroundColor: "transparent", tension: .3, pointRadius: 0, pointHoverRadius: 4 }] },
+    options: opts({ display: false }),
   });
 
   new Chart($("hrChart"), {
     type: "line",
     data: { labels: DATA.monthly_hr.labels, datasets: [
-      { label: "Resting HR", data: DATA.monthly_hr.resting_hr, borderColor: "#2f81f7", backgroundColor: "transparent", tension: .3, pointRadius: 0, spanGaps: true },
-      { label: "Max HR", data: DATA.monthly_hr.max_hr, borderColor: "#c0392b", backgroundColor: "transparent", tension: .3, pointRadius: 0, spanGaps: true },
+      { label: "Resting HR", data: DATA.monthly_hr.resting_hr, borderColor: "#2f81f7", backgroundColor: "transparent", tension: .3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true },
+      { label: "Max HR", data: DATA.monthly_hr.max_hr, borderColor: "#c0392b", backgroundColor: "transparent", tension: .3, pointRadius: 0, pointHoverRadius: 4, spanGaps: true },
     ] },
-    options: { maintainAspectRatio: false, plugins: { legend: { display: true, position: "top", labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { x: monthX() } },
+    options: opts({ display: true, position: "top", labels: { boxWidth: 12, font: { size: 11 } } }),
   });
 }
 
