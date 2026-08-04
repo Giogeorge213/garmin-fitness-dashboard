@@ -12,6 +12,11 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as glue from 'aws-cdk-lib/aws-glue';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as path from 'path';
 
 export interface GarminDashboardStackProps extends cdk.StackProps {
@@ -210,7 +215,79 @@ export class GarminDashboardStack extends cdk.Stack {
       { name: 'readiness_level', type: 'string' }, { name: 'weight_kg', type: 'double' }, { name: 'hydration_ml', type: 'bigint' },
     ]);
 
+    // ---- Weekly refresh: Fargate scheduled task ---------------------------
+    // Container (automation/Dockerfile) runs the pull -> transform -> render ->
+    // publish flow weekly. Ephemeral: EventBridge starts the task, it runs a few
+    // minutes, then exits. Only billed for the runtime (pennies/month).
+    const ANALYTICS_BUCKET_ARN = `arn:aws:s3:::${ANALYTICS_BUCKET}`;
+
+    // Minimal VPC: public subnets only, NO NAT gateway (NAT would add ~$32/mo).
+    // The task gets a public IP so it can reach the Garmin API + S3 + CloudFront.
+    const vpc = new ec2.Vpc(this, 'RefreshVpc', {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [{ name: 'public', subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 }],
+    });
+
+    const cluster = new ecs.Cluster(this, 'RefreshCluster', { vpc });
+
+    const taskDef = new ecs.FargateTaskDefinition(this, 'RefreshTask', {
+      cpu: 1024,          // 1 vCPU
+      memoryLimitMiB: 2048, // headroom for pandas/pyarrow + a first backfill
+    });
+
+    taskDef.addContainer('refresh', {
+      // Build context = repo root (../.. from cdk/lib), Dockerfile in automation/.
+      // Requires Docker/Finch locally at `cdk deploy` time to build + push to ECR.
+      image: ecs.ContainerImage.fromAsset(path.join(__dirname, '..', '..'), {
+        file: 'automation/Dockerfile',
+        // CDK fingerprints the asset by walking the source tree, and that walk
+        // does NOT honor .dockerignore — so without `exclude` it walks the full
+        // ~1.1GB repo (cdk/node_modules, .git, cdk.out) over the slow /mnt/c
+        // filesystem and the build never starts. `exclude` trims the walk itself.
+        exclude: ['.git', 'cdk', 'cdk.out', 'pipeline/out', 'pipeline/**/out',
+                  'site', 'docs', '**/__pycache__', '*.lnk'],
+      }),
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'garmin-refresh',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+      environment: {
+        SITE_BUCKET: bucket.bucketName,
+        DISTRIBUTION_ID: distribution.distributionId,
+        CHAT_API_URL: `${httpApi.apiEndpoint}/ask`,
+        ANALYTICS_BUCKET,
+      },
+    });
+
+    // Task role: site bucket (sync + --delete), analytics bucket (token / raw
+    // cache / parquet read+write), and the CloudFront invalidation.
+    bucket.grantReadWrite(taskDef.taskRole);
+    taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject',
+                's3:ListBucket', 's3:GetBucketLocation'],
+      resources: [ANALYTICS_BUCKET_ARN, `${ANALYTICS_BUCKET_ARN}/*`],
+    }));
+    taskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['cloudfront:CreateInvalidation'],
+      resources: [`arn:aws:cloudfront::${this.account}:distribution/${distribution.distributionId}`],
+    }));
+
+    // Weekly: Sundays 13:00 UTC (~6 AM Pacific), matching the old local task.
+    new events.Rule(this, 'RefreshSchedule', {
+      schedule: events.Schedule.cron({ weekDay: 'SUN', hour: '13', minute: '0' }),
+      targets: [new targets.EcsTask({
+        cluster,
+        taskDefinition: taskDef,
+        taskCount: 1,
+        assignPublicIp: true,
+        subnetSelection: { subnetType: ec2.SubnetType.PUBLIC },
+      })],
+    });
+
     // ---- Outputs ----
+    new cdk.CfnOutput(this, 'RefreshClusterName', { value: cluster.clusterName });
+    new cdk.CfnOutput(this, 'RefreshTaskFamily', { value: taskDef.family });
     new cdk.CfnOutput(this, 'DashboardUrl', { value: `https://${distribution.distributionDomainName}` });
     new cdk.CfnOutput(this, 'ChatApiUrl', { value: `${httpApi.apiEndpoint}/ask` });
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });

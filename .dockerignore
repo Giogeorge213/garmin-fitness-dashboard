@@ -1,0 +1,18 @@
+# Build context is the repo root, but the image only needs pipeline/ + automation/.
+# Everything below is excluded so Docker doesn't tar ~1.1GB (node_modules, .git,
+# cdk.out, the local raw-pull cache) — that was stalling the build.
+.git
+.gitignore
+**/node_modules
+cdk
+cdk.out
+**/cdk.out
+**/cdk.context.json
+pipeline/out
+pipeline/**/out
+site
+docs
+**/__pycache__
+**/*.pyc
+*.lnk
+*.md

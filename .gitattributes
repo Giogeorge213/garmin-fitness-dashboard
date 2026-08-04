@@ -1,0 +1,3 @@
+# Keep shell scripts LF so the container entrypoint doesn't get CRLF on Windows
+# checkouts (CRLF breaks bash with `\r` errors).
+*.sh text eol=lf

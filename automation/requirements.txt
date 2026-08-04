@@ -1,0 +1,6 @@
+# Container deps for the weekly Garmin refresh (Fargate scheduled task).
+# The pipeline scripts themselves are otherwise standard library.
+garminconnect>=0.3.6   # Garmin Connect pull (token-cached auth)
+pandas>=2.0            # parquet build in the transforms
+pyarrow>=15.0          # parquet engine for pandas.to_parquet
+awscli>=1.32           # s3 sync (cache/site) + cloudfront invalidation in the entrypoint
