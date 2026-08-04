@@ -104,4 +104,4 @@ Garmin data is pulled with [python-garminconnect](https://github.com/cyberjunky/
 by cyberjunky, the community Python client for the Garmin Connect API. Token-based
 auth is cached locally so it logs in once (with MFA) and reuses the token after.
 
-Built with [Kiro](https://kiro.dev). Data via Garmin Connect.
+Data via Garmin Connect.
