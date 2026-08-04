@@ -465,7 +465,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <footer>
     Data via Garmin Connect • generated __GENERATED__ •
-    <a href="https://github.com/__GH_REPO__">source</a>
+    <a href="https://github.com/__GH_REPO__">GitHub</a>
   </footer>
 </div>
 
@@ -684,7 +684,7 @@ async function drawMap() {
   requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize()));
   setTimeout(() => map.invalidateSize(), 400);
   $("mapCount").textContent = "(" + data.routes.length + " GPS activities)";
-  $("mapNote").textContent = "Each dot marks where an activity started. Scroll or use +/- to zoom.";
+  $("mapNote").textContent = "Each dot marks where an activity started. Double-click a spot to zoom in, or scroll / use +/-.";
 }
 
 // Run each section independently so a failure in one never blanks the others.
