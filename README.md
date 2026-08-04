@@ -22,7 +22,9 @@ See it live at **https://dmcikdazkoyo2.cloudfront.net**.
 
 ## Architecture
 
-Everything is serverless and defined as infrastructure as code (AWS CDK, TypeScript).
+Everything is serverless and defined as infrastructure as code (AWS CDK, TypeScript). The weekly data refresh runs itself as a scheduled AWS Fargate task — no local machine needed (details in [PROCESS.md](PROCESS.md)).
+
+![Architecture diagram](architecture.png)
 
 ```
 Garmin Connect
