@@ -421,6 +421,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <header>
     <h1>Garmin Fitness Dashboard</h1>
     <p id="subtitle"></p>
+    <p style="margin:6px 0 0"><a href="https://github.com/__GH_REPO__" target="_blank" rel="noopener">View source on GitHub &rarr;</a></p>
   </header>
 
   <h2 style="margin:24px 0 10px">Lifetime <span id="lifetimeSince" style="text-transform:none;font-weight:400;color:var(--muted);font-size:13px"></span></h2>
