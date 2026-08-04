@@ -190,7 +190,7 @@ export class GarminDashboardStack extends cdk.Stack {
           },
         },
       });
-      t.addDependency(glueDb);
+      t.addResourceDependency(glueDb);
       return t;
     };
     parquetTable('ActivitiesTable', 'activities', 'garmin/curated', [
