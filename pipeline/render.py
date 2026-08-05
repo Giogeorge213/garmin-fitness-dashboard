@@ -668,13 +668,31 @@ async function drawMap() {
   // Routes as lines (visible when you zoom into a region) + a fixed-size dot at
   // each start, so every location shows even in the zoomed-out overview.
   const pts = [];
+  const prettySport = s => (s || "activity").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   data.routes.forEach(r => {
     if (!r.coords || r.coords.length < 2) return;
     const color = SPORT_COLORS[r.sport] || "#5c6b80";
-    L.polyline(r.coords, { color, weight: 3, opacity: 0.85 }).addTo(map);
-    L.circleMarker(r.coords[0], { radius: 3, weight: 0, fillColor: color, fillOpacity: 0.8 }).addTo(map);
+    const label = prettySport(r.sport) + (r.date ? " \u00b7 " + r.date : "");
+    L.polyline(r.coords, { color, weight: 3, opacity: 0.85 }).addTo(map).bindTooltip(label, { sticky: true });
+    L.circleMarker(r.coords[0], { radius: 3, weight: 0, fillColor: color, fillOpacity: 0.8 })
+      .addTo(map).bindTooltip(label, { direction: "top" });
     pts.push(r.coords[0]);
   });
+
+  // Color legend (sport groups) pinned to the bottom-right of the map.
+  const legend = L.control({ position: "bottomright" });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create("div", "map-legend");
+    div.style.cssText = "background:rgba(255,255,255,0.92);padding:6px 9px;border-radius:6px;" +
+      "font:12px/1.7 -apple-system,Segoe UI,sans-serif;color:#333;box-shadow:0 1px 4px rgba(0,0,0,0.25)";
+    const items = [["Running", "#0a7d33"], ["Cycling", "#ff9900"], ["Swimming", "#2f81f7"],
+                   ["Hiking", "#c2478a"], ["Walking", "#6b3fa0"], ["Other", "#5c6b80"]];
+    div.innerHTML = "<b>Sport</b>" + items.map(([lbl, c]) =>
+      `<div style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;` +
+      `border-radius:50%;background:${c};display:inline-block"></span>${lbl}</div>`).join("");
+    return div;
+  };
+  legend.addTo(map);
 
   // Open on the full overview of everywhere trained. invalidateSize first so
   // fitBounds measures the real container; SVG repaints on each call.
@@ -684,7 +702,7 @@ async function drawMap() {
   requestAnimationFrame(() => requestAnimationFrame(() => map.invalidateSize()));
   setTimeout(() => map.invalidateSize(), 400);
   $("mapCount").textContent = "(" + data.routes.length + " GPS activities)";
-  $("mapNote").textContent = "Each dot marks where an activity started. Double-click a spot to zoom in, or scroll / use +/-.";
+  $("mapNote").textContent = "Each dot marks where an activity started \u2014 hover a dot or line for the sport and date. Colors show the sport (see legend). Double-click to zoom in, or scroll / use +/-.";
 }
 
 // Run each section independently so a failure in one never blanks the others.
