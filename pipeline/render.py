@@ -626,7 +626,7 @@ const SPORT_COLORS = {
   running: "#0a7d33", treadmill_running: "#0a7d33", trail_running: "#0a7d33",
   cycling: "#ff9900", road_biking: "#ff9900", gravel_cycling: "#ff9900", mountain_biking: "#ff9900",
   lap_swimming: "#2f81f7", open_water_swimming: "#2f81f7",
-  hiking: "#c2478a", walking: "#6b3fa0",
+  hiking: "#6b3fa0", walking: "#6b3fa0",
 };
 
 async function drawMap() {
@@ -686,7 +686,7 @@ async function drawMap() {
     div.style.cssText = "background:rgba(255,255,255,0.92);padding:6px 9px;border-radius:6px;" +
       "font:12px/1.7 -apple-system,Segoe UI,sans-serif;color:#333;box-shadow:0 1px 4px rgba(0,0,0,0.25)";
     const items = [["Running", "#0a7d33"], ["Cycling", "#ff9900"], ["Swimming", "#2f81f7"],
-                   ["Hiking", "#c2478a"], ["Walking", "#6b3fa0"], ["Other", "#5c6b80"]];
+                   ["Hiking / Walking", "#6b3fa0"], ["Other", "#5c6b80"]];
     div.innerHTML = "<b>Sport</b>" + items.map(([lbl, c]) =>
       `<div style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;` +
       `border-radius:50%;background:${c};display:inline-block"></span>${lbl}</div>`).join("");
