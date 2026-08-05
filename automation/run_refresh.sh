@@ -33,6 +33,7 @@ TOKEN_S3="${TOKEN_S3:-${STATE_PREFIX}/garmin-token}"
 RAW_CACHE_S3="${RAW_CACHE_S3:-${STATE_PREFIX}/raw-cache}"
 ACT_PARQUET_S3="s3://${ANALYTICS_BUCKET}/garmin/curated/garmin_activities.parquet"
 WELL_PARQUET_S3="s3://${ANALYTICS_BUCKET}/garmin/wellness/wellness_daily.parquet"
+METRICS_S3="${STATE_PREFIX}/last-good-metrics.json"
 
 echo "== Garmin refresh @ $(date -u +%FT%TZ) =="
 
@@ -74,6 +75,15 @@ python pipeline/render.py \
   --data-dir pipeline/activities/out \
   --health-file pipeline/out/curated/wellness_daily.csv
 
+# 3b. Data-quality publish gate (FAIL-CLOSED) ------------------------------
+# Validate the freshly rendered site BEFORE the destructive `--delete` sync.
+# If it fails, set -e aborts here and the last-good site stays live (stale but
+# correct) instead of publishing a blank/truncated dashboard.
+echo "-- restore last-good metrics baseline --"
+aws s3 cp "$METRICS_S3" prev-metrics.json --quiet 2>/dev/null || echo '{}' > prev-metrics.json
+echo "-- data-quality gate --"
+python pipeline/dq_checks.py --site site --prev prev-metrics.json --out new-metrics.json
+
 # 4. Publish: sync site -> CloudFront bucket, invalidate --------------------
 echo "-- sync site/ -> s3://$SITE_BUCKET --"
 aws s3 sync site/ "s3://$SITE_BUCKET/" --delete
@@ -86,5 +96,10 @@ aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
 echo "-- push token + raw cache back to S3 --"
 aws s3 sync "$HOME/.garmin_tokens" "$TOKEN_S3" --quiet
 aws s3 sync pipeline/out/raw "$RAW_CACHE_S3" --quiet
+
+# Only reached if the gate passed and the publish succeeded: record this run's
+# counts as the new last-good baseline for the next run's regression guard.
+echo "-- persist new last-good metrics baseline --"
+aws s3 cp new-metrics.json "$METRICS_S3" --quiet
 
 echo "== done =="
