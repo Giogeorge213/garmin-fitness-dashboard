@@ -68,6 +68,7 @@ def load_index(data_dir):
                 idx[aid] = {
                     "sport": a.get("activityType", {}).get("typeKey"),
                     "date": (a.get("startTimeLocal") or "")[:10],
+                    "loc": a.get("locationName"),
                 }
     return idx
 
@@ -99,8 +100,9 @@ def main():
         aid = det.get("activityId")
         meta = idx.get(aid, {})
         routes.append({"id": aid, "sport": meta.get("sport"),
-                       "date": meta.get("date"), "coords": [[round(c[0], 5), round(c[1], 5)]
-                                                            for c in coords]})
+                       "date": meta.get("date"), "loc": meta.get("loc"),
+                       "coords": [[round(c[0], 5), round(c[1], 5)]
+                                  for c in coords]})
         all_lat += [c[0] for c in coords]
         all_lon += [c[1] for c in coords]
 

@@ -444,6 +444,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <section class="card c-pink" style="margin-top:20px" id="mapCard">
     <h2>Where I've Trained <span id="mapCount" style="text-transform:none;font-weight:400"></span></h2>
     <div id="map" style="height:440px;border-radius:8px"></div>
+    <div id="mapLegend" style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12px;color:var(--muted)"></div>
     <div id="mapNote" style="color:var(--muted);font-size:12px;margin-top:8px"></div>
   </section>
 
@@ -672,27 +673,19 @@ async function drawMap() {
   data.routes.forEach(r => {
     if (!r.coords || r.coords.length < 2) return;
     const color = SPORT_COLORS[r.sport] || "#5c6b80";
-    const label = prettySport(r.sport) + (r.date ? " \u00b7 " + r.date : "");
+    const label = [r.loc, prettySport(r.sport), r.date].filter(Boolean).join(" \u00b7 ");
     L.polyline(r.coords, { color, weight: 3, opacity: 0.85 }).addTo(map).bindTooltip(label, { sticky: true });
     L.circleMarker(r.coords[0], { radius: 3, weight: 0, fillColor: color, fillOpacity: 0.8 })
       .addTo(map).bindTooltip(label, { direction: "top" });
     pts.push(r.coords[0]);
   });
 
-  // Color legend (sport groups) pinned to the bottom-right of the map.
-  const legend = L.control({ position: "bottomright" });
-  legend.onAdd = () => {
-    const div = L.DomUtil.create("div", "map-legend");
-    div.style.cssText = "background:rgba(255,255,255,0.92);padding:6px 9px;border-radius:6px;" +
-      "font:12px/1.7 -apple-system,Segoe UI,sans-serif;color:#333;box-shadow:0 1px 4px rgba(0,0,0,0.25)";
-    const items = [["Running", "#0a7d33"], ["Cycling", "#ff9900"], ["Swimming", "#2f81f7"],
-                   ["Hiking / Walking", "#6b3fa0"], ["Other", "#5c6b80"]];
-    div.innerHTML = "<b>Sport</b>" + items.map(([lbl, c]) =>
-      `<div style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;` +
-      `border-radius:50%;background:${c};display:inline-block"></span>${lbl}</div>`).join("");
-    return div;
-  };
-  legend.addTo(map);
+  // Color legend rendered UNDER the map (not overlaid) so it never covers it.
+  const legendItems = [["Running", "#0a7d33"], ["Cycling", "#ff9900"], ["Swimming", "#2f81f7"],
+                       ["Hiking / Walking", "#6b3fa0"], ["Other", "#5c6b80"]];
+  $("mapLegend").innerHTML = legendItems.map(([lbl, c]) =>
+    `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:11px;height:11px;` +
+    `border-radius:50%;background:${c};display:inline-block"></span>${lbl}</span>`).join("");
 
   // Open on the full overview of everywhere trained. invalidateSize first so
   // fitBounds measures the real container; SVG repaints on each call.
