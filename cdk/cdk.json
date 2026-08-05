@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/garmin.ts",
+  "app": "TS_NODE_TRANSPILE_ONLY=1 npx ts-node --prefer-ts-exts bin/garmin.ts",
   "watch": {
     "include": ["**"],
     "exclude": ["README.md", "cdk*.json", "**/*.d.ts", "**/*.js", "node_modules", "cdk.out"]
